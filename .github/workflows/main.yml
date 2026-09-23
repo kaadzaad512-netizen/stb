@@ -1,1 +1,36 @@
+name: Build Android APK
 
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # Allows you to manually trigger the build from the GitHub website
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository Code
+      uses: actions/checkout@v4
+
+    - name: Set up Java JDK
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Set up Python Environment
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - name: Execute APK Build Script
+      run: python build_apk.py
+
+    - name: Upload Finished APK Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: StalkerPlayer-APK
+        path: StalkerPlayerBuild/StalkerPlayer.apk
+        
