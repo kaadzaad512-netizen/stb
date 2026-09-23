@@ -1,10 +1,10 @@
 name: Build Android APK
 
 on:
-  workflow_dispatch:          # manual "Run workflow" button in Actions tab
+  workflow_dispatch:
   push:
     tags:
-      - "v*"                  # auto-build on tags like v4.3
+      - "v*"
 
 jobs:
   build-apk:
@@ -16,12 +16,53 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # ---- fails FAST with a clear message instead of mid-build ----
+      - name: Verify required files
+        run: |
+          echo "--- Repository root contents ---"
+          ls -la
+          for f in iptv.py main.py buildozer.spec; do
+            if [ ! -f "$f" ]; then
+              echo "::error::File '$f' is missing from the repo root. Commit it and re-run."
+              exit 1
+            fi
+          done
+          echo "All required files present ✓"
+
+      # ---- safety net: generates a spec if somehow missing ----
+      - name: Fallback — create buildozer.spec if missing
+        if: ${{ !contains(steps.verify.outputs.result, 'ok') }}
+        run: |
+          [ -f buildozer.spec ] && exit 0
+          cat > buildozer.spec <<'SPEC'
+          [app]
+          title = IPTV Player
+          package.name = iptvplayer
+          package.domain = org.iptvplayer
+          source.dir = .
+          source.include_exts = py
+          version = 4.3
+          requirements = python3,kivy==2.3.0,requests,pyjnius
+          orientation = portrait
+          fullscreen = 0
+          android.permissions = INTERNET
+          android.api = 34
+          android.minapi = 24
+          android.archs = arm64-v8a, armeabi-v7a
+          android.accept_sdk_license = True
+
+          [buildozer]
+          log_level = 2
+          warn_on_root = 1
+          SPEC
+          echo "Generated buildozer.spec on the fly"
+
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Install system dependencies (JDK 17 + build tools)
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -35,7 +76,7 @@ jobs:
           python -m pip install --upgrade pip wheel
           pip install buildozer "cython<3.1"
 
-      - name: Cache SDK / NDK / buildozer
+      - name: Cache SDK / NDK
         uses: actions/cache@v4
         with:
           path: |
