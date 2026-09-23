@@ -62,8 +62,8 @@ def setup_workspace():
 def download_dependencies():
     print("[*] Downloading valid Android compilation tools...")
     urls = {
-        # Using a reliable, stable release version from Google Maven Repository
         "r8.jar": "https://maven.org",
+        # Updated to the fully-qualified master raw branch pointer to ensure full binary payload transmission
         "android.jar": "https://github.com"
     }
     for name, url in urls.items():
@@ -72,7 +72,7 @@ def download_dependencies():
             print(f"    Downloading {name}...")
             req = urllib.request.Request(
                 url, 
-                headers={'User-Agent': 'Mozilla/5.0'}
+                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
             )
             try:
                 with urllib.request.urlopen(req) as response, open(path, 'wb') as out_file:
@@ -80,6 +80,7 @@ def download_dependencies():
             except Exception as e:
                 print(f"[-] Failed to download {name}: {e}")
                 raise e
+                
                 
 def run_command(cmd, cwd=None):
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=cwd)
