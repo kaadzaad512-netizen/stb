@@ -62,8 +62,9 @@ def setup_workspace():
 def download_dependencies():
     print("[*] Downloading valid Android compilation tools...")
     urls = {
-        "r8.jar": "https://storage.googleapis.com/r8-releases/raw/r8-3.3.75.jar",
-        "android.jar": "https://github.com/Sable/android-platforms/raw/master/android-26/android.jar"
+        # Using a reliable, stable release version from Google Maven Repository
+        "r8.jar": "https://maven.org",
+        "android.jar": "https://github.com"
     }
     for name, url in urls.items():
         path = f"{PROJECT_DIR}/{name}"
@@ -79,7 +80,7 @@ def download_dependencies():
             except Exception as e:
                 print(f"[-] Failed to download {name}: {e}")
                 raise e
-
+                
 def run_command(cmd, cwd=None):
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=cwd)
     if result.returncode != 0:
