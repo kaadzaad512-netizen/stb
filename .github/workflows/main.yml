@@ -46,6 +46,8 @@ jobs:
 
       - name: Create Android project
         shell: bash
+        env:
+          ANDROID_HOME: ${{ github.workspace }}/android-sdk
         run: |
           set -euxo pipefail
 
@@ -264,13 +266,29 @@ jobs:
           }
           EOF
 
-      - name: Set up Gradle 8.7
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.7"
+      - name: Set up Gradle wrapper
+        shell: bash
+        run: |
+          set -euxo pipefail
+          
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.6.1' apply false
+          }
+          
+          wrapper {
+              gradleVersion = '8.7'
+          }
+          EOF
+          
+          gradle wrapper --gradle-version 8.7
 
       - name: Build Debug APK
+        shell: bash
+        env:
+          ANDROID_HOME: ${{ github.workspace }}/android-sdk
         run: |
+          chmod +x ./gradlew
           ./gradlew clean assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
