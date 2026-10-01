@@ -13,23 +13,86 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Auto-Create Architecture and Infrastructure
+      - name: Build System Properties
         run: |
           mkdir -p app/src/main/java/com/stb/iptv app/src/main/res/values app/src/main/res/drawable
           echo 'pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }; dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }; rootProject.name = "StalkerIPTV"; include(":app")' > settings.gradle.kts
           echo 'plugins { id("com.android.application") version "8.5.2" apply false; id("org.jetbrains.kotlin.android") version "1.9.24" apply false }' > build.gradle.kts
-          echo -e 'org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8\nandroid.useAndroidX=true\nandroid.nonTransitiveRClass=true' > gradle.properties
-          echo -e '<?xml version="1.0" encoding="utf-8"?><manifest xmlns:android="http://android.com"><uses-permission android:name="android.permission.INTERNET" /><application android:label="STB Player Pro" android:usesCleartextTraffic="true" android:theme="@style/Theme.App"><activity android:name=".PlayerActivity" android:screenOrientation="landscape" android:configChanges="orientation|screenSize" android:exported="false" /><activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity></application></manifest>' > app/src/main/AndroidManifest.xml
-          echo -e '<resources><style name="Theme.App" parent="android:Theme.Material.NoActionBar"><item name="android:windowBackground">#0B1020</item><item name="android:statusBarColor">#0B1020</item><item name="android:windowLightStatusBar">false</item></style></resources>' > app/src/main/res/values/themes.xml
-          echo -e '<?xml version="1.0" encoding="utf-8"?><shape xmlns:android="http://android.com"><gradient android:angle="270" android:startColor="#0B1020" android:centerColor="#101A33" android:endColor="#0B1020" /></shape>' > app/src/main/res/drawable/bg.xml
+          
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          EOF
 
-      - name: Auto-Inject Dependency Specifications
+      - name: Build Module Specifications
         run: |
-          echo -e 'plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }\nandroid {\nnamespace = "com.stb.iptv"; compileSdk = 34\ndefaultConfig { applicationId = "com.stb.iptv"; minSdk = 24; targetSdk = 34; versionCode = 3; versionName = "3.0" }\nbuildFeatures { compose = true }; composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }\n}\ndependencies {\nimplementation("androidx.core:core-ktx:1.13.1")\nimplementation("androidx.activity:activity-compose:1.9.0")\nimplementation(platform("androidx.compose:compose-bom:2024.06.00"))\nimplementation("androidx.compose.ui:ui")\nimplementation("androidx.compose.material3:material3")\nimplementation("com.squareup.okhttp3:okhttp:4.12.0")\nimplementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")\nimplementation("androidx.media3:media3-exoplayer:1.4.1")\nimplementation("androidx.media3:media3-ui:1.4.1")\n}' > app/build.gradle.kts
+          cat > app/build.gradle.kts <<'EOF'
+          plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
+          android {
+              namespace = "com.stb.iptv"; compileSdk = 34
+              defaultConfig { applicationId = "com.stb.iptv"; minSdk = 24; targetSdk = 34; versionCode = 3; versionName = "3.0" }
+              buildFeatures { compose = true }; composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
+          }
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.activity:activity-compose:1.9.0")
+              implementation(platform("androidx.compose:compose-bom:2024.06.00"))
+              implementation("androidx.compose.ui:ui")
+              implementation("androidx.compose.material3:material3")
+              implementation("com.squareup.okhttp3:okhttp:4.12.0")
+              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+              implementation("androidx.media3:media3-exoplayer:1.4.1")
+              implementation("androidx.media3:media3-ui:1.4.1")
+          }
+          EOF
 
-      - name: Auto-Create Core Source Engine
+      - name: Build Android Manifest Configuration
         run: |
-          echo -e 'package com.stb.iptv\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.foundation.layout.*\nimport androidx.compose.material3.*\nimport androidx.compose.ui.Modifier\nimport androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.unit.dp\nclass MainActivity : ComponentActivity() {\noverride fun onCreate(savedInstanceState: Bundle?) {\nsuper.onCreate(savedInstanceState)\nsetContent {\nMaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFF22C55E))) {\nSurface(Modifier.fillMaxSize()) {\nColumn(Modifier.padding(16.dp)) {\nText("STB Player Pro Engine Initialized Successfully", style = MaterialTheme.typography.headlineMedium)\n}\n}\n}\n}\n}\n}\n}' > app/src/main/java/com/stb/iptv/MainActivity.kt
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://android.com">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <application android:label="STB Player Pro" android:usesCleartextTraffic="true" android:theme="@style/Theme.App">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          echo '<resources><style name="Theme.App" parent="android:Theme.Material.NoActionBar"><item name="android:windowBackground">#0B1020</item></style></resources>' > app/src/main/res/values/themes.xml
+
+      - name: Build Core View Elements
+        run: |
+          cat > app/src/main/java/com/stb/iptv/MainActivity.kt <<'EOF'
+          package com.stb.iptv
+          import android.os.Bundle
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.unit.dp
+          class MainActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContent {
+                      MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFF22C55E))) {
+                          Surface(Modifier.fillMaxSize()) {
+                              Column(Modifier.padding(16.dp)) {
+                                  Text("STB Player Pro Engine Initialized", style = MaterialTheme.typography.headlineMedium)
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+          EOF
 
       - name: Compile and Bundle Package
         run: gradle --no-daemon assembleDebug
