@@ -19,35 +19,11 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Android SDK
-        shell: bash
-        env:
-          ANDROID_HOME: ${{ github.workspace }}/android-sdk
-        run: |
-          set -euxo pipefail
-
-          mkdir -p "$ANDROID_HOME/cmdline-tools"
-          cd "$ANDROID_HOME/cmdline-tools"
-
-          if [ ! -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
-            curl -fsSL -o cmdline-tools.zip \
-              https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-            rm -rf latest
-            unzip -q cmdline-tools.zip
-            mv cmdline-tools latest
-            rm -f cmdline-tools.zip
-          fi
-
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Create Android project
         shell: bash
-        env:
-          ANDROID_HOME: ${{ github.workspace }}/android-sdk
         run: |
           set -euxo pipefail
 
@@ -78,6 +54,10 @@ jobs:
           cat > build.gradle <<'EOF'
           plugins {
               id 'com.android.application' version '8.6.1' apply false
+          }
+
+          wrapper {
+              gradleVersion = '8.7'
           }
           EOF
 
@@ -266,27 +246,14 @@ jobs:
           }
           EOF
 
-      - name: Set up Gradle wrapper
+      - name: Generate Gradle wrapper
         shell: bash
         run: |
           set -euxo pipefail
-          
-          cat > build.gradle <<'EOF'
-          plugins {
-              id 'com.android.application' version '8.6.1' apply false
-          }
-          
-          wrapper {
-              gradleVersion = '8.7'
-          }
-          EOF
-          
           gradle wrapper --gradle-version 8.7
 
       - name: Build Debug APK
         shell: bash
-        env:
-          ANDROID_HOME: ${{ github.workspace }}/android-sdk
         run: |
           chmod +x ./gradlew
           ./gradlew clean assembleDebug --no-daemon --stacktrace
