@@ -1,1 +1,271 @@
+name: Build Android APK
 
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      - name: Create project folders
+        run: |
+          mkdir -p app/src/main/java/com/example/fourshared
+          mkdir -p app/src/main/res/values
+
+      - name: Create settings.gradle
+        run: |
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "FourSharedClient"
+          include(":app")
+          EOF
+
+      - name: Create root build.gradle
+        run: |
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
+
+      - name: Create gradle.properties
+        run: |
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          EOF
+
+      - name: Create app build.gradle
+        run: |
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.example.fourshared'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.example.fourshared'
+                  minSdk 23
+                  targetSdk 35
+                  versionCode 1
+                  versionName '1.0'
+              }
+
+              buildTypes {
+                  debug {
+                      minifyEnabled false
+                  }
+
+                  release {
+                      minifyEnabled false
+                  }
+              }
+          }
+          EOF
+
+      - name: Create AndroidManifest.xml
+        run: |
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+
+              <application
+                  android:allowBackup="false"
+                  android:label="@string/app_name"
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+
+                  </activity>
+
+              </application>
+
+          </manifest>
+          EOF
+
+      - name: Create strings.xml
+        run: |
+          cat > app/src/main/res/values/strings.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+
+          <resources>
+              <string name="app_name">4Shared Client</string>
+          </resources>
+          EOF
+
+      - name: Create MainActivity.java
+        run: |
+          cat > app/src/main/java/com/example/fourshared/MainActivity.java <<'EOF'
+          package com.example.fourshared;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.graphics.Color;
+          import android.view.Gravity;
+          import android.widget.Button;
+          import android.widget.EditText;
+          import android.widget.LinearLayout;
+          import android.widget.TextView;
+
+          public class MainActivity extends Activity {
+
+              private TextView status;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  createInterface();
+              }
+
+              private void createInterface() {
+
+                  LinearLayout root = new LinearLayout(this);
+
+                  root.setOrientation(LinearLayout.VERTICAL);
+                  root.setGravity(Gravity.CENTER_HORIZONTAL);
+                  root.setPadding(48, 48, 48, 48);
+
+                  TextView title = new TextView(this);
+                  title.setText("4Shared Client");
+                  title.setTextSize(28);
+                  title.setTextColor(Color.BLACK);
+                  title.setGravity(Gravity.CENTER);
+
+                  root.addView(title);
+
+                  EditText email = new EditText(this);
+                  email.setHint("Email");
+                  email.setSingleLine(true);
+
+                  root.addView(email);
+
+                  EditText password = new EditText(this);
+                  password.setHint("Password");
+                  password.setSingleLine(true);
+                  password.setInputType(129);
+
+                  root.addView(password);
+
+                  Button login = new Button(this);
+                  login.setText("Sign in");
+
+                  root.addView(login);
+
+                  status = new TextView(this);
+                  status.setText("Enter your account details.");
+                  status.setTextSize(16);
+                  status.setTextColor(Color.DKGRAY);
+
+                  root.addView(status);
+
+                  login.setOnClickListener(v -> {
+
+                      String user =
+                          email.getText().toString().trim();
+
+                      String pass =
+                          password.getText().toString();
+
+                      if (user.isEmpty()) {
+                          status.setText(
+                              "Please enter your email."
+                          );
+                          return;
+                      }
+
+                      if (pass.isEmpty()) {
+                          status.setText(
+                              "Please enter your password."
+                          );
+                          return;
+                      }
+
+                      /*
+                       * Connect this to an officially supported
+                       * 4Shared authentication/API endpoint.
+                       */
+
+                      status.setText(
+                          "Ready for official API authentication."
+                      );
+                  });
+
+                  setContentView(root);
+              }
+          }
+          EOF
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build APK
+        run: |
+          gradle --no-daemon clean assembleDebug
+
+      - name: Rename APK
+        run: |
+          mkdir -p artifacts
+          cp app/build/outputs/apk/debug/app-debug.apk \
+             artifacts/4SharedClient.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: 4SharedClient
+          path: artifacts/4SharedClient.apk
