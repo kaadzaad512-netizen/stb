@@ -24,6 +24,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libssl-dev libgdbm-dev libsqlite3-dev libbffi-dev libgstreamer1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good libffi-dev
+          sudo apt-get update && sudo apt-get install -y libffi-dev
 
       - name: Install Buildozer and Cython
         run: |
